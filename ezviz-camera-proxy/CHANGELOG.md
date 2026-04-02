@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.1] — 2026-04-02
+
+### Fixed
+
+- **Critical:** Bypass `pyezvizapi`'s `get_device_infos()` which crashes with
+  `'str' object has no attribute 'get'` on HP2 cameras. The HP2 returns string
+  values instead of dicts in the CLOUD section of the pagelist response.
+  New implementation calls `_get_page_list()` directly and safely parses all
+  sections, fully bypassing the broken code path.
+- Fixed `datetime.utcnow()` deprecation warnings (replaced with
+  `datetime.now(timezone.utc)`).
+- Improved snapshot worker with consecutive error tracking and backoff.
+- Default `snapshot_interval` increased from 30s to 60s (HP2 is battery-powered).
+
+---
+
 ## [1.0.0] — 2026-04-02
 
 ### Added

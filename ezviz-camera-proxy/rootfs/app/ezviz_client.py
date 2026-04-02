@@ -2,34 +2,38 @@
 Ezviz Cloud API Client Wrapper
 Wraps pyezvizapi (v1.0.x) for use in the HA Add-on.
 Handles authentication, token caching, device status and snapshots.
+
+NOTE: The HP2 camera returns non-standard data in the CLOUD section of the
+pagelist API, causing pyezvizapi's get_device_infos() to crash with
+'str' object has no attribute 'get'.  This wrapper works around that by
+calling the pagelist API directly and parsing the response safely.
 """
 
 import io
-import os
 import json
-import time
 import logging
+import os
 import threading
-import requests
+import time
+import traceback
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import requests
 
 logger = logging.getLogger(__name__)
 
 
 class EzvizClientError(Exception):
     """Base exception for EzvizClient errors."""
-    pass
 
 
 class EzvizAuthError(EzvizClientError):
     """Authentication failed."""
-    pass
 
 
 class EzvizDeviceError(EzvizClientError):
     """Device operation failed."""
-    pass
 
 
 class EzvizClient:
@@ -39,11 +43,11 @@ class EzvizClient:
     - Auto-reconnect on session expiry
     - Device status, snapshot and alarm retrieval
 
-    Compatible with pyezvizapi >= 1.0.0
+    Compatible with pyezvizapi >= 1.0.0.
+    Works around HP2-specific pagelist format issues.
     """
 
-    TOKEN_CACHE_FILE = "/data/ezviz_token.json"
-    TOKEN_EXPIRY_HOURS = 23  # Ezviz tokens last ~24h; refresh before expiry
+    TOKEN_EXPIRY_HOURS = 23
 
     def __init__(
         self,
@@ -57,22 +61,22 @@ class EzvizClient:
         self.password = password
         self.region = region
         self.camera_serial = camera_serial
-        self.camera_password = camera_password  # verification code (for future use)
+        self.camera_password = camera_password
 
         self._client = None  # pyezvizapi.EzvizClient instance
-        self._camera = None  # pyezvizapi.EzvizCamera instance
         self._lock = threading.Lock()
         self._last_login: datetime | None = None
+
+        # Cached data from last successful pagelist fetch
+        self._cached_device_data: dict = {}
+        self._cached_status: dict = {}
 
     # ------------------------------------------------------------------
     # Authentication
     # ------------------------------------------------------------------
 
     def login(self) -> bool:
-        """
-        Authenticate with the Ezviz Cloud API.
-        Returns True on success, raises EzvizAuthError on failure.
-        """
+        """Authenticate with the Ezviz Cloud API."""
         with self._lock:
             return self._login_locked()
 
@@ -93,11 +97,8 @@ class EzvizClient:
                 url=self.region,
             )
             client.login()
-
             self._client = client
-            self._camera = None  # Reset camera on re-login
             self._last_login = datetime.now(timezone.utc)
-
             logger.info("Ezviz authentication successful")
             return True
 
@@ -111,93 +112,204 @@ class EzvizClient:
                 ) from e
             raise EzvizAuthError(f"Login failed: {error_msg}") from e
 
-    def _ensure_authenticated(self) -> None:
-        """Ensure we have a valid session, re-login if needed. Must hold _lock."""
+    def _ensure_authenticated(self):
+        """Ensure we have a valid session. Must hold _lock."""
         if self._client is None or (
             self._last_login
-            and datetime.now(timezone.utc) - self._last_login > timedelta(hours=self.TOKEN_EXPIRY_HOURS)
+            and datetime.now(timezone.utc) - self._last_login
+            > timedelta(hours=self.TOKEN_EXPIRY_HOURS)
         ):
             logger.info("Session expired or not initialized, re-authenticating...")
             self._login_locked()
 
-    def _get_camera(self):
+    # ------------------------------------------------------------------
+    # Safe pagelist fetch (works around HP2 'str' has no attr 'get')
+    # ------------------------------------------------------------------
+
+    def _safe_get_page_list(self) -> dict:
         """
-        Get an EzvizCamera instance for the configured serial.
-        Must be called while holding _lock.
+        Fetch the pagelist via pyezvizapi's internal API and return the raw dict.
+        This is the same as client._get_page_list() but we catch errors.
         """
         self._ensure_authenticated()
-        if not self.camera_serial:
-            raise EzvizDeviceError("No camera serial configured.")
-
-        # Re-use cached camera object
-        if self._camera is not None:
-            return self._camera
-
         try:
-            from pyezvizapi import EzvizCamera as _EzvizCamera
-
-            # pyezvizapi v1.0.x: EzvizCamera(client, serial, device_obj=None)
-            # When device_obj is None, it calls client.get_device_infos(serial)
-            camera = _EzvizCamera(self._client, self.camera_serial)
-            self._camera = camera
-            return camera
-
+            data = self._client._get_page_list()
+            return data if isinstance(data, dict) else {}
         except Exception as e:
-            logger.error("Failed to load camera %s: %s", self.camera_serial, e)
-            # Invalidate client to force re-login next time
-            self._client = None
-            self._camera = None
-            raise EzvizDeviceError(f"Could not load camera: {e}") from e
+            logger.error("_get_page_list failed: %s", e)
+            return {}
+
+    def _safe_get_device_data(self, serial: str) -> dict:
+        """
+        Build device data dict for the given serial from the raw pagelist.
+        This is a safe reimplementation of get_device_infos() that handles
+        the HP2's non-standard CLOUD section (strings instead of dicts).
+        """
+        pages = self._safe_get_page_list()
+        if not pages:
+            return {}
+
+        # Find the device in deviceInfos
+        device_info = None
+        for dev in pages.get("deviceInfos", []) or []:
+            if isinstance(dev, dict) and dev.get("deviceSerial") == serial:
+                device_info = dev
+                break
+
+        if device_info is None:
+            logger.warning("Device %s not found in pagelist deviceInfos", serial)
+            # List available devices for debugging
+            available = []
+            for dev in pages.get("deviceInfos", []) or []:
+                if isinstance(dev, dict):
+                    available.append(f"{dev.get('deviceSerial')} ({dev.get('name', '?')})")
+            if available:
+                logger.info("Available devices: %s", ", ".join(available))
+            return {}
+
+        # Safely extract sections — each section might be keyed by serial or resource ID
+        def safe_get(section_name: str, key: str) -> dict:
+            section = pages.get(section_name)
+            if not isinstance(section, dict):
+                return {}
+            val = section.get(key)
+            return val if isinstance(val, dict) else {}
+
+        result = {
+            "deviceInfos": device_info,
+            "STATUS": safe_get("STATUS", serial),
+            "CONNECTION": safe_get("CONNECTION", serial),
+            "P2P": safe_get("P2P", serial),
+            "KMS": safe_get("KMS", serial),
+            "QOS": safe_get("QOS", serial),
+            "NODISTURB": safe_get("NODISTURB", serial),
+            "FEATURE": safe_get("FEATURE", serial),
+            "UPGRADE": safe_get("UPGRADE", serial),
+            "FEATURE_INFO": safe_get("FEATURE_INFO", serial),
+            "SWITCH": safe_get("SWITCH", serial),
+            "WIFI": safe_get("WIFI", serial),
+            "TIME_PLAN": safe_get("TIME_PLAN", serial),
+        }
+
+        # Parse supportExt if it's a JSON string
+        support_ext = device_info.get("supportExt")
+        if isinstance(support_ext, str) and support_ext:
+            try:
+                result["deviceInfos"]["supportExt"] = json.loads(support_ext)
+            except (ValueError, TypeError):
+                pass
+
+        # Parse optionals if it's a JSON string (common in STATUS)
+        optionals = result["STATUS"].get("optionals")
+        if isinstance(optionals, str) and optionals:
+            try:
+                result["STATUS"]["optionals"] = json.loads(optionals)
+            except (ValueError, TypeError):
+                pass
+        elif isinstance(optionals, dict):
+            # Recursively parse any string values that are JSON
+            for k, v in list(optionals.items()):
+                if isinstance(v, str):
+                    try:
+                        optionals[k] = json.loads(v)
+                    except (ValueError, TypeError):
+                        pass
+
+        self._cached_device_data = result
+        return result
 
     # ------------------------------------------------------------------
     # Device status
     # ------------------------------------------------------------------
 
     def get_device_status(self) -> dict:
-        """
-        Return a dict with device status information.
-        Uses EzvizCamera.status() which returns CameraStatus TypedDict.
-        """
+        """Return a dict with device status information."""
         with self._lock:
             try:
-                camera = self._get_camera()
-                status_data = camera.status(refresh=True)
+                device = self._safe_get_device_data(self.camera_serial)
+                if not device:
+                    raise EzvizDeviceError(
+                        f"Device {self.camera_serial} not found in account"
+                    )
 
-                # status_data is a CameraStatus dict with many keys
+                dev_info = device.get("deviceInfos", {})
+                status = device.get("STATUS", {})
+                connection = device.get("CONNECTION", {})
+                optionals = status.get("optionals", {})
+                if not isinstance(optionals, dict):
+                    optionals = {}
+
+                # Parse SWITCH list into a dict
+                switch_data = device.get("SWITCH")
+                switches = {}
+                if isinstance(switch_data, list):
+                    for item in switch_data:
+                        if isinstance(item, dict):
+                            t = item.get("type")
+                            en = item.get("enable")
+                            if t is not None:
+                                switches[int(t)] = bool(en)
+                elif isinstance(switch_data, dict):
+                    switches = switch_data
+
+                # Alarm info
+                last_alarm_pic = ""
+                last_alarm_time = ""
+                last_alarm_type = ""
+                try:
+                    alarm_resp = self._client.get_alarminfo(
+                        serial=self.camera_serial, limit=1
+                    )
+                    alarm_list = (
+                        alarm_resp.get("alarmList")
+                        or alarm_resp.get("page", {}).get("alarmList")
+                        or []
+                    )
+                    if isinstance(alarm_list, list) and alarm_list:
+                        latest = alarm_list[0]
+                        last_alarm_pic = latest.get("alarmPicUrl", "")
+                        last_alarm_time = latest.get("alarmStartTimeStr", "")
+                        last_alarm_type = latest.get("sampleName") or latest.get(
+                            "alarmType", ""
+                        )
+                except Exception as e:
+                    logger.debug("Alarm info fetch failed: %s", e)
+
                 result = {
-                    "serial": status_data.get("serial", self.camera_serial),
-                    "name": status_data.get("name", "HP2 Door Viewer"),
-                    "online": status_data.get("status") == 1,
-                    "status_code": status_data.get("status"),
-                    "battery_level": status_data.get("battery_level"),
-                    "local_ip": status_data.get("local_ip"),
-                    "wan_ip": status_data.get("wan_ip"),
-                    "version": status_data.get("version", ""),
-                    "device_category": status_data.get("device_category"),
-                    "device_sub_category": status_data.get("device_sub_category"),
-                    "alarm_notify": status_data.get("alarm_notify"),
-                    "alarm_sound_mod": status_data.get("alarm_sound_mod"),
-                    "encrypted": status_data.get("encrypted"),
-                    "local_rtsp_port": status_data.get("local_rtsp_port"),
-                    "last_alarm_time": status_data.get("last_alarm_time"),
-                    "last_alarm_pic": status_data.get("last_alarm_pic"),
-                    "last_alarm_type": status_data.get("last_alarm_type_name"),
-                    "motion_trigger": status_data.get("Motion_Trigger"),
-                    "pir_status": status_data.get("PIR_Status"),
-                    "is_sleeping": bool(status_data.get("switches", {}).get(21, False)),  # DeviceSwitchType.AUTO_SLEEP = 21
-                    "mac_address": status_data.get("mac_address"),
-                    "supported_channels": status_data.get("supported_channels"),
-                    "battery_work_mode": status_data.get("battery_camera_work_mode"),
-                    "upgrade_available": status_data.get("upgrade_available"),
+                    "serial": self.camera_serial,
+                    "name": dev_info.get("name", "HP2"),
+                    "online": dev_info.get("status") == 1,
+                    "status_code": dev_info.get("status"),
+                    "battery_level": optionals.get("powerRemaining"),
+                    "local_ip": connection.get("localIp") or dev_info.get("localIp"),
+                    "wan_ip": connection.get("netIp"),
+                    "version": dev_info.get("version", ""),
+                    "device_category": dev_info.get("deviceCategory"),
+                    "device_sub_category": dev_info.get("deviceSubCategory"),
+                    "alarm_notify": bool(status.get("globalStatus")),
+                    "alarm_sound_mod": status.get("alarmSoundMode"),
+                    "encrypted": bool(status.get("isEncrypt")),
+                    "local_rtsp_port": connection.get("localRtspPort", "0"),
+                    "last_alarm_time": last_alarm_time,
+                    "last_alarm_pic": last_alarm_pic,
+                    "last_alarm_type": last_alarm_type,
+                    "motion_trigger": bool(status.get("pirStatus")),
+                    "pir_status": status.get("pirStatus"),
+                    "is_sleeping": bool(switches.get(21, False)),
+                    "mac_address": dev_info.get("mac"),
+                    "supported_channels": dev_info.get("channelNumber"),
+                    "battery_work_mode": optionals.get("batteryCameraWorkMode"),
+                    "upgrade_available": device.get("UPGRADE", {}).get("isNeedUpgrade")
+                    == 3,
                 }
+                self._cached_status = result
                 return result
 
             except EzvizDeviceError:
                 raise
             except Exception as e:
-                logger.error("get_device_status failed: %s", e)
+                logger.error("get_device_status failed: %s\n%s", e, traceback.format_exc())
                 self._client = None
-                self._camera = None
                 raise EzvizDeviceError(f"Status fetch failed: {e}") from e
 
     # ------------------------------------------------------------------
@@ -208,64 +320,76 @@ class EzvizClient:
         """
         Fetch the latest snapshot image.
         Strategy:
-        1. Try to download the last_alarm_pic URL from status
-        2. Try to trigger capture_picture and get the result
-        3. Return None if all fails
+        1. Download the last_alarm_pic URL from status/alarminfo
+        2. Try capture_picture API
+        3. Try device_messages_list for recent event images
         """
         with self._lock:
             try:
-                camera = self._get_camera()
-                status_data = camera.status(refresh=True)
+                self._ensure_authenticated()
 
-                # Strategy 1: Get the last alarm picture URL
-                pic_url = status_data.get("last_alarm_pic", "")
-                if pic_url and pic_url.startswith("http"):
-                    try:
-                        resp = requests.get(pic_url, timeout=15)
-                        if resp.status_code == 200 and len(resp.content) > 100:
-                            logger.debug("Snapshot from alarm pic: %d bytes", len(resp.content))
-                            return resp.content
-                    except Exception as e:
-                        logger.warning("Failed to download alarm pic: %s", e)
+                # Strategy 1: Get last alarm picture from alarminfo API
+                pic_url = self._get_latest_alarm_pic()
+                if pic_url:
+                    img = self._download_image(pic_url)
+                    if img:
+                        logger.debug("Snapshot from alarm pic: %d bytes", len(img))
+                        return img
 
                 # Strategy 2: Try capture_picture API
                 try:
-                    self._ensure_authenticated()
                     result = self._client.capture_picture(
-                        serial=self.camera_serial,
-                        channel=1,
+                        serial=self.camera_serial, channel=1
                     )
-                    # The API may return a URL in the result
                     if isinstance(result, dict):
-                        cap_url = result.get("picUrl") or result.get("data", {}).get("picUrl", "")
-                        if cap_url and cap_url.startswith("http"):
-                            resp = requests.get(cap_url, timeout=15)
-                            if resp.status_code == 200 and len(resp.content) > 100:
-                                logger.debug("Snapshot from capture: %d bytes", len(resp.content))
-                                return resp.content
+                        cap_url = (
+                            result.get("picUrl")
+                            or result.get("data", {}).get("picUrl", "")
+                            if isinstance(result.get("data"), dict)
+                            else ""
+                        )
+                        if cap_url:
+                            img = self._download_image(cap_url)
+                            if img:
+                                logger.debug(
+                                    "Snapshot from capture: %d bytes", len(img)
+                                )
+                                return img
                 except Exception as e:
                     logger.debug("capture_picture not available: %s", e)
 
-                # Strategy 3: Try device messages list for recent images
+                # Strategy 3: Device messages list
                 try:
-                    self._ensure_authenticated()
                     msgs = self._client.get_device_messages_list(
-                        serials=self.camera_serial,
-                        limit=5,
+                        serials=self.camera_serial, limit=5
                     )
                     messages = msgs.get("message") or msgs.get("messages") or []
                     if isinstance(messages, list):
                         for msg in messages:
                             if not isinstance(msg, dict):
                                 continue
-                            msg_pic = msg.get("picUrl") or msg.get("alarmPicUrl") or ""
-                            if msg_pic and msg_pic.startswith("http"):
-                                resp = requests.get(msg_pic, timeout=15)
-                                if resp.status_code == 200 and len(resp.content) > 100:
-                                    logger.debug("Snapshot from message: %d bytes", len(resp.content))
-                                    return resp.content
+                            msg_pic = (
+                                msg.get("picUrl")
+                                or msg.get("alarmPicUrl")
+                                or ""
+                            )
+                            if msg_pic:
+                                img = self._download_image(msg_pic)
+                                if img:
+                                    logger.debug(
+                                        "Snapshot from message: %d bytes", len(img)
+                                    )
+                                    return img
                 except Exception as e:
                     logger.debug("Messages list fallback failed: %s", e)
+
+                # Strategy 4: Use cached alarm pic from last status
+                cached_pic = self._cached_status.get("last_alarm_pic", "")
+                if cached_pic:
+                    img = self._download_image(cached_pic)
+                    if img:
+                        logger.debug("Snapshot from cached status: %d bytes", len(img))
+                        return img
 
                 logger.warning("No snapshot source available")
                 return None
@@ -275,42 +399,111 @@ class EzvizClient:
             except Exception as e:
                 logger.error("get_snapshot failed: %s", e)
                 self._client = None
-                self._camera = None
                 raise EzvizDeviceError(f"Snapshot fetch failed: {e}") from e
+
+    def _get_latest_alarm_pic(self) -> str:
+        """Get the URL of the latest alarm picture."""
+        try:
+            alarm_resp = self._client.get_alarminfo(
+                serial=self.camera_serial, limit=1
+            )
+            alarm_list = (
+                alarm_resp.get("alarmList")
+                or alarm_resp.get("page", {}).get("alarmList")
+                or []
+            )
+            if isinstance(alarm_list, list) and alarm_list:
+                pic = alarm_list[0].get("alarmPicUrl", "")
+                if pic and pic.startswith("http"):
+                    return pic
+        except Exception as e:
+            logger.debug("get_alarminfo failed: %s", e)
+        return ""
+
+    def _download_image(self, url: str) -> bytes | None:
+        """Download an image from a URL, return bytes or None."""
+        if not url or not url.startswith("http"):
+            return None
+        try:
+            resp = requests.get(url, timeout=15)
+            if resp.status_code == 200 and len(resp.content) > 100:
+                return resp.content
+        except Exception as e:
+            logger.debug("Image download failed from %s: %s", url[:80], e)
+        return None
 
     # ------------------------------------------------------------------
     # Alarm / Events
     # ------------------------------------------------------------------
 
     def get_alarm_list(self, max_count: int = 10) -> list[dict]:
-        """
-        Return a list of recent alarm events using the unified messages API.
-        """
+        """Return a list of recent alarm events."""
         with self._lock:
             try:
                 self._ensure_authenticated()
-                msgs = self._client.get_device_messages_list(
-                    serials=self.camera_serial,
-                    limit=min(max_count, 50),
-                )
-                messages = msgs.get("message") or msgs.get("messages") or []
-                result = []
-                if isinstance(messages, list):
-                    for msg in messages:
-                        if not isinstance(msg, dict):
-                            continue
-                        result.append({
-                            "alarm_id": msg.get("msgId", ""),
-                            "alarm_type": msg.get("sampleName") or msg.get("alarmType", ""),
-                            "alarm_time": msg.get("msgTimeStr") or msg.get("alarmStartTimeStr", ""),
-                            "alarm_pic_url": msg.get("picUrl") or msg.get("alarmPicUrl", ""),
-                            "device_serial": msg.get("deviceSerial", ""),
-                        })
-                return result
+
+                # Try unified messages first
+                try:
+                    msgs = self._client.get_device_messages_list(
+                        serials=self.camera_serial,
+                        limit=min(max_count, 50),
+                    )
+                    messages = msgs.get("message") or msgs.get("messages") or []
+                    result = []
+                    if isinstance(messages, list):
+                        for msg in messages:
+                            if not isinstance(msg, dict):
+                                continue
+                            result.append(
+                                {
+                                    "alarm_id": msg.get("msgId", ""),
+                                    "alarm_type": msg.get("sampleName")
+                                    or msg.get("alarmType", ""),
+                                    "alarm_time": msg.get("msgTimeStr")
+                                    or msg.get("alarmStartTimeStr", ""),
+                                    "alarm_pic_url": msg.get("picUrl")
+                                    or msg.get("alarmPicUrl", ""),
+                                    "device_serial": msg.get("deviceSerial", ""),
+                                }
+                            )
+                    if result:
+                        return result
+                except Exception as e:
+                    logger.debug("get_device_messages_list failed: %s", e)
+
+                # Fallback: alarminfo API
+                try:
+                    alarm_resp = self._client.get_alarminfo(
+                        serial=self.camera_serial, limit=max_count
+                    )
+                    alarm_list = (
+                        alarm_resp.get("alarmList")
+                        or alarm_resp.get("page", {}).get("alarmList")
+                        or []
+                    )
+                    result = []
+                    if isinstance(alarm_list, list):
+                        for alarm in alarm_list:
+                            if not isinstance(alarm, dict):
+                                continue
+                            result.append(
+                                {
+                                    "alarm_id": alarm.get("alarmId", ""),
+                                    "alarm_type": alarm.get("sampleName")
+                                    or alarm.get("alarmType", ""),
+                                    "alarm_time": alarm.get("alarmStartTimeStr", ""),
+                                    "alarm_pic_url": alarm.get("alarmPicUrl", ""),
+                                    "device_serial": self.camera_serial,
+                                }
+                            )
+                    return result
+                except Exception as e:
+                    logger.debug("get_alarminfo fallback failed: %s", e)
+
+                return []
 
             except Exception as e:
                 logger.error("get_alarm_list failed: %s", e)
-                # Return empty list instead of raising — non-critical
                 return []
 
     # ------------------------------------------------------------------
@@ -318,31 +511,45 @@ class EzvizClient:
     # ------------------------------------------------------------------
 
     def get_all_devices(self) -> list[dict]:
-        """
-        Return a list of all cameras/devices associated with the account.
-        Uses load_cameras() which returns status dicts keyed by serial.
-        """
+        """Return a list of all devices on the account."""
         with self._lock:
             try:
                 self._ensure_authenticated()
-                cameras = self._client.load_cameras()
+                pages = self._safe_get_page_list()
                 result = []
-                if isinstance(cameras, dict):
-                    for serial, cam_status in cameras.items():
-                        if isinstance(cam_status, dict):
-                            result.append({
-                                "serial": serial,
-                                "name": cam_status.get("name", serial),
-                                "online": cam_status.get("status") == 1,
-                                "model": cam_status.get("device_sub_category", ""),
-                                "battery_level": cam_status.get("battery_level"),
-                            })
+                for dev in pages.get("deviceInfos", []) or []:
+                    if not isinstance(dev, dict):
+                        continue
+                    serial = dev.get("deviceSerial", "")
+                    status_section = pages.get("STATUS", {})
+                    dev_status = (
+                        status_section.get(serial, {})
+                        if isinstance(status_section, dict)
+                        else {}
+                    )
+                    optionals = dev_status.get("optionals", {})
+                    if isinstance(optionals, str):
+                        try:
+                            optionals = json.loads(optionals)
+                        except (ValueError, TypeError):
+                            optionals = {}
+
+                    result.append(
+                        {
+                            "serial": serial,
+                            "name": dev.get("name", serial),
+                            "online": dev.get("status") == 1,
+                            "model": dev.get("deviceSubCategory", ""),
+                            "battery_level": optionals.get("powerRemaining")
+                            if isinstance(optionals, dict)
+                            else None,
+                        }
+                    )
                 return result
 
             except Exception as e:
                 logger.error("get_all_devices failed: %s", e)
                 self._client = None
-                self._camera = None
                 raise EzvizDeviceError(f"Device list failed: {e}") from e
 
     # ------------------------------------------------------------------
@@ -350,11 +557,9 @@ class EzvizClient:
     # ------------------------------------------------------------------
 
     def is_connected(self) -> bool:
-        """Return True if we currently have an authenticated client."""
         return self._client is not None
 
     def invalidate_session(self) -> None:
-        """Force re-login on next operation."""
         with self._lock:
             if self._client:
                 try:
@@ -362,5 +567,4 @@ class EzvizClient:
                 except Exception:
                     pass
             self._client = None
-            self._camera = None
             logger.info("Session invalidated, will re-authenticate on next call")

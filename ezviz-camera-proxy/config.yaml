@@ -1,5 +1,5 @@
 name: "Ezviz Camera Proxy"
-version: "1.0.0"
+version: "1.0.1"
 slug: ezviz-camera-proxy
 description: "Proxy für Ezviz Kameras (inkl. HP2) die kein RTSP unterstützen. Nutzt die Ezviz Cloud API für Snapshots, Events und optionalen Live-Stream."
 url: "https://github.com/gilbert82/ha-ezviz-stream"
@@ -27,7 +27,7 @@ options:
   ezviz_region: "apiieu.ezvizlife.com"
   camera_serial: ""
   camera_password: ""
-  snapshot_interval: 30
+  snapshot_interval: 60
   enable_mqtt_events: true
 schema:
   ezviz_username: str
