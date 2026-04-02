@@ -385,19 +385,31 @@ class EzvizClient:
                     logger.info("Strategy 2: capture_picture returned: %s",
                                 str(result)[:300] if result else "None")
                     if isinstance(result, dict):
-                        cap_url = (
-                            result.get("picUrl")
-                            or result.get("data", {}).get("picUrl", "")
-                            if isinstance(result.get("data"), dict)
-                            else ""
-                        )
-                        if cap_url:
+                        # Extract picUrl from various response formats:
+                        # Format 1: {"captureInfo": {"picUrl": "..."}}
+                        # Format 2: {"picUrl": "..."}
+                        # Format 3: {"data": {"picUrl": "..."}}
+                        cap_url = ""
+                        capture_info = result.get("captureInfo")
+                        if isinstance(capture_info, dict):
+                            cap_url = capture_info.get("picUrl", "")
+                        if not cap_url:
+                            cap_url = result.get("picUrl", "")
+                        if not cap_url:
+                            data = result.get("data")
+                            if isinstance(data, dict):
+                                cap_url = data.get("picUrl", "")
+
+                        if cap_url and cap_url.startswith("http"):
+                            logger.info("Strategy 2: downloading from %s", cap_url[:120])
                             img = self._download_image(cap_url)
                             if img:
                                 logger.info("Snapshot from capture: %d bytes", len(img))
                                 return img
                             else:
-                                logger.info("Strategy 2: capture pic download failed")
+                                logger.info("Strategy 2: download failed or image too small")
+                        else:
+                            logger.info("Strategy 2: no valid picUrl in response")
                 except Exception as e:
                     logger.info("Strategy 2: capture_picture failed: %s", e)
 
@@ -502,10 +514,28 @@ class EzvizClient:
             return None
         try:
             resp = requests.get(url, timeout=15)
-            if resp.status_code == 200 and len(resp.content) > 100:
-                return resp.content
+            content_type = resp.headers.get("Content-Type", "unknown")
+            content_len = len(resp.content)
+            if resp.status_code == 200 and content_len > 100:
+                # Check if the response looks like a real image
+                is_jpeg = resp.content[:2] == b'\xff\xd8'
+                is_png = resp.content[:4] == b'\x89PNG'
+                logger.info("Image download: %d bytes, type=%s, jpeg=%s, png=%s",
+                            content_len, content_type, is_jpeg, is_png)
+                if is_jpeg or is_png or "image" in content_type.lower():
+                    return resp.content
+                else:
+                    # Might be encrypted or HTML error — log first bytes
+                    logger.warning("Downloaded data is not a recognized image format. "
+                                   "First 50 bytes: %s, Content-Type: %s",
+                                   resp.content[:50], content_type)
+                    # Return it anyway — it might still work
+                    return resp.content
+            else:
+                logger.info("Image download: status=%d, size=%d bytes (too small or error)",
+                            resp.status_code, content_len)
         except Exception as e:
-            logger.debug("Image download failed from %s: %s", url[:80], e)
+            logger.info("Image download failed from %s: %s", url[:80], e)
         return None
 
     # ------------------------------------------------------------------
