@@ -82,14 +82,23 @@ _last_status: dict = {}
 _last_events: list = []
 _snapshot_error: str = ""
 _status_error: str = ""
-_status_error: str = ""
 _last_snapshot_time: datetime | None = None
 _seen_events: set | None = None
 _last_event_trigger_time: float = 0
+_last_auth_fail_time: float = 0
 
 
 def get_client() -> EzvizClient:
-    global _client
+    """Return a single globally-cached EzvizClient instance."""
+    global _client, _last_auth_fail_time
+    
+    # If we failed auth recently, don't even try for 30 seconds to avoid "terminal limit"
+    if time.time() - _last_auth_fail_time < 30:
+        logger.warning("Auth cooling period active (30s). Skipping terminal-heavy login attempt.")
+        if _client:
+             return _client
+        raise EzvizAuthError("Auth cooling period active")
+
     with _client_lock:
         if _client is None:
             _client = EzvizClient(
@@ -100,6 +109,12 @@ def get_client() -> EzvizClient:
                 camera_password=CAMERA_PASSWORD,
             )
         return _client
+
+def handle_auth_error(e):
+    """Update auth failure timing to trigger cooling period."""
+    global _last_auth_fail_time
+    _last_auth_fail_time = time.time()
+    logger.error("Authentication failed, cooling down: %s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -241,7 +256,7 @@ def _snapshot_worker():
                     logger.error("Event fetch failed: %s", e)
         except EzvizAuthError as e:
             _snapshot_error = f"Auth error: {e}"
-            logger.error("Auth error in snapshot worker: %s", e)
+            handle_auth_error(e)
             consecutive_errors += 1
             # Force re-login on next cycle
             client = get_client()
@@ -392,9 +407,8 @@ def api_snapshot_refresh():
             return jsonify({"success": False, "error": _snapshot_error}), 502
 
     except EzvizAuthError as e:
-        return jsonify({"success": False, "error": f"Auth failed: {e}"}), 401
-    except EzvizDeviceError as e:
-        return jsonify({"success": False, "error": str(e)}), 502
+        handle_auth_error(e)
+        return jsonify({"success": False, "error": str(e)}), 401
     except Exception as e:
         logger.exception("Snapshot refresh failed")
         return jsonify({"success": False, "error": str(e)}), 500

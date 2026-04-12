@@ -358,10 +358,14 @@
     let refreshing = false;
 
     function updateCountdown() {
+      if (SNAPSHOT_INTERVAL <= 0) {
+        document.getElementById('countdown').textContent = 'Event-Only';
+        return;
+      }
       document.getElementById('countdown').textContent = countdown;
       if (countdown <= 0) {
         refreshSnapshot(false);
-        countdown = {{ snapshot_interval }};
+        countdown = {{ snapshot_interval or 0 }};
       } else {
         countdown--;
       }
@@ -369,7 +373,11 @@
 
     function startCountdown() {
       clearInterval(countdownTimer);
-      countdown = {{ snapshot_interval }};
+      if (SNAPSHOT_INTERVAL <= 0) {
+        document.getElementById('countdown').textContent = 'Event-Only';
+        return;
+      }
+      countdown = {{ snapshot_interval or 0 }};
       countdownTimer = setInterval(updateCountdown, 1000);
     }
 

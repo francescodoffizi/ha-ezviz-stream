@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.1] — 2026-04-12
+
+### Fixed
+
+- **UI Refresh Loop**: Fixed a bug where setting `snapshot_interval` to `0` caused the dashboard to refresh every second.
+- **Auth Flood Protection**: Added a 30-second "cooling period" after any authentication failure. This prevents the proxy from hammering Ezviz servers and hitting the "too many terminals" (error 1069) limit when sessions expire or credentials issues occur.
+
+---
+
 ## [1.2.0] — 2026-04-12
 
 ### Added
