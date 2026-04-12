@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.4] — 2026-04-12
+
+### Fixed
+
+- **Cleaner Entity Names**: Simplified sensor names in MQTT Discovery to avoid redundant serial numbers. This should result in cleaner entity IDs in Home Assistant like `binary_sensor.ezviz_camera_bh9350432_motion`.
+
+---
+
 ## [1.3.3] — 2026-04-12
 
 ### Fixed

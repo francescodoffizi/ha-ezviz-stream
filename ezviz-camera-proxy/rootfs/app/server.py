@@ -264,13 +264,13 @@ def _send_mqtt_discovery():
     sensors = [
         ("motion", "Motion", "motion"),
         ("doorbell", "Doorbell", "occupancy"),
-        ("alarm", "Global Alarm", "problem")
+        ("alarm", "Alarm", "problem")
     ]
 
     for s_type, s_name, s_class in sensors:
         config_topic = f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_{s_type}/config"
         payload = {
-            "name": f"{s_name} ({CAMERA_SERIAL})",
+            "name": s_name,
             "state_topic": f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_{s_type}/state",
             "device_class": s_class,
             "unique_id": f"ezviz_{CAMERA_SERIAL}_{s_type}",
