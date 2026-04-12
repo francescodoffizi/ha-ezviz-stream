@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0] — 2026-04-12
+
+### Fixed
+
+- **Ezviz Cloud MQTT Stability**: Fixed a scoping bug that caused the connection to the Ezviz event stream to be unstable and reset every minute.
+- **Local MQTT Discovery**: Verified and confirmed that auto-discovery messages are correctly sent to Home Assistant.
+
+---
+
 ## [1.2.9] — 2026-04-12
 
 ### Added

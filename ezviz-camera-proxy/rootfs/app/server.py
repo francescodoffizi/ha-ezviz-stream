@@ -83,6 +83,7 @@ _last_events: list = []
 _snapshot_error: str = ""
 _status_error: str = ""
 _last_snapshot_time: datetime | None = None
+ezviz_mqtt = None
 _seen_events: set | None = None
 _last_event_trigger_time: float = 0
 _last_auth_fail_time: float = 0
@@ -272,7 +273,7 @@ def _send_mqtt_discovery():
 
 def _snapshot_worker():
     """Background thread: fetch a new snapshot every SNAPSHOT_INTERVAL seconds."""
-    global _last_status, _last_events, _snapshot_error, _status_error, _last_snapshot_time, _seen_events
+    global _last_status, _last_events, _snapshot_error, _status_error, _last_snapshot_time, _seen_events, ezviz_mqtt
 
     logger.info("Snapshot worker started (interval=%ds)", SNAPSHOT_INTERVAL)
     # Initial delay to allow app startup
