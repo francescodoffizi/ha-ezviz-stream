@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.9] — 2026-04-12
+
+### Added
+
+- **Manual MQTT Configuration**: Added options to manually specify MQTT host, port, username, and password in the add-on configuration. This serves as a definitive fallback if auto-detection fails.
+
+### Fixed
+
+- **Bashio Service Detection**: Switched to a more robust `bashio::service` syntax to fix "command not found" errors during startup.
+
+---
+
 ## [1.2.8] — 2026-04-12
 
 ### Fixed

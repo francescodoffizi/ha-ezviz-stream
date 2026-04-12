@@ -22,30 +22,40 @@ export HA_SUPERVISOR_URL="http://supervisor"
 # MQTT Service details provided by HA if configured
 bashio::log.info "Checking for MQTT service..."
 
-# Initialize with empty values to avoid unbound variable errors
-MQTT_HOST=""
-MQTT_PORT=""
-MQTT_USER=""
-MQTT_PASSWORD=""
+# Initialize with manual config values first
+MQTT_HOST="$(bashio::config 'mqtt_host')"
+MQTT_PORT="$(bashio::config 'mqtt_port')"
+MQTT_USER="$(bashio::config 'mqtt_user')"
+MQTT_PASSWORD="$(bashio::config 'mqtt_password')"
 
-if bashio::services.available "mqtt"; then
-    MQTT_HOST="$(bashio::services.mqtt "host")"
-    MQTT_PORT="$(bashio::services.mqtt "port")"
-    MQTT_USER="$(bashio::services.mqtt "username")"
-    MQTT_PASSWORD="$(bashio::services.mqtt "password")"
-    bashio::log.info "MQTT service detected (via bashio): ${MQTT_HOST}:${MQTT_PORT}"
+if [ -n "${MQTT_HOST}" ]; then
+    bashio::log.info "Using manual MQTT configuration: ${MQTT_HOST}:${MQTT_PORT}"
 else
-    bashio::log.warning "MQTT service not detected via bashio"
-fi
+    # Try different bashio syntaxes for service detection
+    if bashio::services.available "mqtt"; then
+        bashio::log.info "MQTT service available via bashio"
+        # Try multiple ways to get the host as some versions differ
+        MQTT_HOST=$(bashio::service "mqtt" "host" 2>/dev/null || bashio::services.mqtt "host" 2>/dev/null || echo "")
+        MQTT_PORT=$(bashio::service "mqtt" "port" 2>/dev/null || bashio::services.mqtt "port" 2>/dev/null || echo "1883")
+        MQTT_USER=$(bashio::service "mqtt" "username" 2>/dev/null || bashio::services.mqtt "username" 2>/dev/null || echo "")
+        MQTT_PASSWORD=$(bashio::service "mqtt" "password" 2>/dev/null || bashio::services.mqtt "password" 2>/dev/null || echo "")
+        
+        if [ -n "${MQTT_HOST}" ]; then
+            bashio::log.info "MQTT service auto-detected: ${MQTT_HOST}:${MQTT_PORT}"
+        fi
+    else
+        bashio::log.warning "MQTT service not detected via bashio"
+    fi
 
-# Fallback to internal name common in HA if still empty
-if [ -z "${MQTT_HOST}" ]; then
-   bashio::log.info "Checking if 'core-mosquitto' is reachable..."
-   if ping -c 1 core-mosquitto &> /dev/null; then
-       bashio::log.info "Fallback: using core-mosquitto as MQTT host"
-       MQTT_HOST="core-mosquitto"
-       MQTT_PORT="1883"
-   fi
+    # Final fallback to core-mosquitto if still empty
+    if [ -z "${MQTT_HOST}" ]; then
+       bashio::log.info "Checking if 'core-mosquitto' is reachable..."
+       if ping -c 1 core-mosquitto &> /dev/null; then
+           bashio::log.info "Fallback: using core-mosquitto as MQTT host"
+           MQTT_HOST="core-mosquitto"
+           MQTT_PORT="1883"
+       fi
+    fi
 fi
 
 # Export to environment for Python
