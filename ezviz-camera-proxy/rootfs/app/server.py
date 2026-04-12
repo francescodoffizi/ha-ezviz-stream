@@ -481,6 +481,23 @@ def api_snapshot():
     })
 
 
+@app.route("/api/debug/alarms")
+def debug_alarms():
+    """Debug endpoint to see raw cloud alarm list."""
+    try:
+        client = get_client()
+        if not client.is_connected():
+            client.login()
+        alarms = client.get_alarm_list(CAMERA_SERIAL)
+        return jsonify({
+            "camera_serial": CAMERA_SERIAL,
+            "raw_alarms": alarms
+        })
+    except Exception as e:
+        logger.error("Debug alarms failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/snapshot/refresh", methods=["POST", "GET"])
 def api_snapshot_refresh():
     """Trigger an immediate snapshot fetch from the cloud."""

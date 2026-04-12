@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.6] — 2026-04-12
+
+### Added
+
+- **Debug endpoint**: Added `/api/debug/alarms` to allow manual verification of cloud event history. This helps in diagnosing why push events might be missing (e.g. cloud misconfiguration).
+
+---
+
 ## [1.3.5] — 2026-04-12
 
 ### Fixed
