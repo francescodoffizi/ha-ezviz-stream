@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.4] — 2026-04-12
+
+### Added
+
+- **Real-Time Push Notifications**: Migrated the internal architecture from 60-second API polling to zero-latency MQTT push. The proxy now maintains a persistent connection to Ezviz Cloud's push servers. When motion or a doorbell ring occurs, the event is immediately intercepted and forwarded to the local Home Assistant MQTT broker, eliminating the polling delay entirely!
+
+---
+
+## [1.1.3] — 2026-04-12
+- Support Content-Length in MJPEG streams
+
+---
+
 ## [1.1.2] — 2026-04-12
 
 ### Fixed

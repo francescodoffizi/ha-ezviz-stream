@@ -102,8 +102,48 @@ def get_client() -> EzvizClient:
 
 
 # ---------------------------------------------------------------------------
-# Background snapshot poller
+# Background snapshot poller & Real-time MQTT setup
 # ---------------------------------------------------------------------------
+
+def _on_ezviz_push_message(msg):
+    """Callback triggered instantly by Ezviz Cloud when motion/doorbell occurs."""
+    if not ENABLE_MQTT_EVENTS:
+        return
+    
+    mqtt_host = os.environ.get("MQTT_HOST")
+    if not mqtt_host:
+        return
+
+    ext = msg.get("ext", {})
+    ev_id = ext.get("msgId")
+    if not ev_id:
+        return
+
+    global _seen_events
+    if _seen_events is None:
+        _seen_events = set()
+
+    if ev_id not in _seen_events:
+        _seen_events.add(ev_id)
+        
+        # Publish exactly like the polled events, but formatted from the push payload
+        topic = f"ezviz/{CAMERA_SERIAL}/alarm"
+        mqtt_port = int(os.environ.get("MQTT_PORT", 1883))
+        mqtt_user = os.environ.get("MQTT_USER", "")
+        mqtt_pass = os.environ.get("MQTT_PASSWORD", "")
+        
+        try:
+            publish.single(
+                topic, 
+                json.dumps(msg), 
+                hostname=mqtt_host, 
+                port=mqtt_port,
+                auth={'username': mqtt_user, 'password': mqtt_pass} if mqtt_user else None
+            )
+            logger.info("⚡ Real-time Push: Published alarm %s to MQTT topic %s", ev_id, topic)
+        except Exception as e:
+            logger.error("⚡ Real-time Push failed to publish to HA MQTT: %s", e)
+
 
 def _snapshot_worker():
     """Background thread: fetch a new snapshot every SNAPSHOT_INTERVAL seconds."""
@@ -114,6 +154,7 @@ def _snapshot_worker():
     time.sleep(5)
 
     consecutive_errors = 0
+    ezviz_mqtt = None
 
     while True:
         try:
@@ -123,6 +164,15 @@ def _snapshot_worker():
             if not client.is_connected():
                 logger.info("Snapshot worker: logging in...")
                 client.login()
+                
+                # Start real-time push listener once logged in
+                if ENABLE_MQTT_EVENTS and ezviz_mqtt is None:
+                    try:
+                        logger.info("⚡ Subscribing to Ezviz Cloud real-time push events...")
+                        ezviz_mqtt = client._client.get_mqtt_client(on_message_callback=_on_ezviz_push_message)
+                        ezviz_mqtt.connect()
+                    except Exception as mqtt_err:
+                        logger.error("Failed to start Ezviz Cloud MQTT push: %s", mqtt_err)
 
             # Fetch status first (lighter call, also provides last_alarm_pic)
             try:
