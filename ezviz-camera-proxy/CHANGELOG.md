@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.5] — 2026-04-12
+
+### Fixed
+
+- **Event Processing**: Fixed a regression in the real-time event handler and improved event ID extraction to ensure all push messages are processed correctly.
+
+---
+
 ## [1.3.4] — 2026-04-12
 
 ### Fixed

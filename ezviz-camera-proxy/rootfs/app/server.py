@@ -147,17 +147,14 @@ def _on_ezviz_push_message(msg):
     
     logger.info("⚡ Real-time Push Message received: %s", json.dumps(msg))
     
-    mqtt_host = os.environ.get("MQTT_HOST")
     ext = msg.get("ext", {})
-    ev_id = ext.get("msgId")
-    if not ev_id:
-        logger.warning("⚡ Push message missing msgId in ext: %s", ext)
-        return
-
+    # Try multiple ways to get an event ID to avoid duplicates
+    ev_id = msg.get("id") or ext.get("msgId") or msg.get("extras", {}).get("ticket") or str(time.time())
+    
     global _seen_events
     if _seen_events is None:
         _seen_events = set()
-
+    
     if ev_id not in _seen_events:
         _seen_events.add(ev_id)
         logger.info("⚡ New event %s detected (type: %s). Processing...", ev_id, ext.get("alert_type_code"))
@@ -174,7 +171,7 @@ def _on_ezviz_push_message(msg):
         # Publish to local HA MQTT if possible
         mqtt_host = os.environ.get("MQTT_HOST")
         if not mqtt_host:
-            logger.info("⚠️ MQTT_HOST not set, skipping local MQTT publish (check Add-on logs for discovery errors)")
+            logger.info("⚠️ MQTT_HOST not set, skipping local MQTT publish")
             return
 
         mqtt_port = int(os.environ.get("MQTT_PORT", 1883))
@@ -184,15 +181,12 @@ def _on_ezviz_push_message(msg):
         
         # Determine event type
         alert_code = int(ext.get("alert_type_code", 0))
-        # 10120, 10100 = motion/person. 
-        # Doorbell codes found in various models: 10000, 10006, 10022, 10055, 10001, 10002
+        # Doorbell codes: 10000, 10006, 10022 etc.
         is_doorbell = alert_code in [10000, 10001, 10002, 10006, 10022, 10054, 10055]
         event_type = "doorbell" if is_doorbell else "motion"
         
-        # Log the raw payload for unknown or doorbell events to help debug
         logger.info("⚡ Push Event: code=%s, type=%s, msg=%s", alert_code, event_type, msg.get("alert", "N/A"))
         
-        # Topics requested by user: homeassistant/camera/ezviz/{serial}/{type}
         main_topic = f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_{event_type}/state"
         global_topic = f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_alarm/state"
         user_topic = f"homeassistant/camera/ezviz/{CAMERA_SERIAL}/{event_type}"
@@ -202,7 +196,7 @@ def _on_ezviz_push_message(msg):
             for t in [main_topic, user_topic, global_topic]:
                 publish.single(t, "ON", hostname=mqtt_host, port=mqtt_port, auth=auth)
             
-            # Attributes topic - Flatten 'ext' into top-level for easier access in HA
+            # Attributes topic - Flatten 'ext' into top-level
             attr_data = msg.copy()
             if "ext" in attr_data and isinstance(attr_data["ext"], dict):
                 attr_data.update(attr_data.pop("ext"))
@@ -210,13 +204,12 @@ def _on_ezviz_push_message(msg):
             attr_topic = main_topic.replace("/state", "/attributes")
             publish.single(attr_topic, json.dumps(attr_data), hostname=mqtt_host, port=mqtt_port, auth=auth)
             
-            # Also update global attributes
             global_attr_topic = global_topic.replace("/state", "/attributes")
             publish.single(global_attr_topic, json.dumps(attr_data), hostname=mqtt_host, port=mqtt_port, auth=auth)
             
-            logger.info("⚡ Real-time Push: Published %s event (code %s) with flattened attributes", event_type, alert_code)
+            logger.info("⚡ Real-time Push: Published %s event (code %s)", event_type, alert_code)
             
-            # Reset to 'OFF' after 5 seconds (simulated pulse)
+            # Reset to 'OFF' after 5 seconds
             def _reset_mqtt():
                 time.sleep(5)
                 try:
@@ -228,11 +221,11 @@ def _on_ezviz_push_message(msg):
         except Exception as e:
             logger.error("⚡ Real-time Push failed to publish to HA MQTT: %s", e)
 
-        # Update the local events list so the dashboard shows it instantly
+        # Update the local events list
         global _last_events
         new_ev = {
             "alarm_id": ev_id,
-            "alarm_type": ext.get("alert_type_code"),
+            "alarm_type": alert_code,
             "alarm_name": msg.get("alert", "Event"),
             "alarm_time": ext.get("time", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
             "pic_url": msg.get("image", ""),
