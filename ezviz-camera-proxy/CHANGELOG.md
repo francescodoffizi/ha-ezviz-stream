@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] — 2026-04-12
+
+### Added
+
+- **Event-Driven Snapshots (Battery Saver)**: The add-on now allows `snapshot_interval` to be set to `0` (or any large number up to completely disabled). When a real-time push event (motion or doorbell) arrives via Ezviz MQTT, an immediate, lightweight threaded snapshot fetch is forced instantly, perfectly synchronized with the event. This drastically saves battery on the HP2 camera, as the proxy no longer forcefully wakes the device up on an arbitrary polling clock.
+
+---
+
 ## [1.1.4] — 2026-04-12
 
 ### Added

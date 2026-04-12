@@ -85,6 +85,7 @@ _status_error: str = ""
 _status_error: str = ""
 _last_snapshot_time: datetime | None = None
 _seen_events: set | None = None
+_last_event_trigger_time: float = 0
 
 
 def get_client() -> EzvizClient:
@@ -104,6 +105,24 @@ def get_client() -> EzvizClient:
 # ---------------------------------------------------------------------------
 # Background snapshot poller & Real-time MQTT setup
 # ---------------------------------------------------------------------------
+
+def _fetch_snapshot_on_event():
+    """Trigger an immediate snapshot asynchronously when motion/doorbell is pushed."""
+    global _last_snapshot_time, _snapshot_error
+    try:
+        logger.info("⚡ Event detected! Forcing immediate snapshot fetch...")
+        client = get_client()
+        img_bytes = client.get_snapshot()
+        if img_bytes:
+            with open(CURRENT_SNAPSHOT_FILE, "wb") as f:
+                f.write(img_bytes)
+            _last_snapshot_time = datetime.now(timezone.utc)
+            _snapshot_error = ""
+            logger.debug("Event-driven snapshot saved (%d bytes)", len(img_bytes))
+        else:
+            logger.warning("Event-driven snapshot returned empty data")
+    except Exception as e:
+        logger.error("Failed to fetch snapshot on event: %s", e)
 
 def _on_ezviz_push_message(msg):
     """Callback triggered instantly by Ezviz Cloud when motion/doorbell occurs."""
@@ -143,6 +162,14 @@ def _on_ezviz_push_message(msg):
             logger.info("⚡ Real-time Push: Published alarm %s to MQTT topic %s", ev_id, topic)
         except Exception as e:
             logger.error("⚡ Real-time Push failed to publish to HA MQTT: %s", e)
+
+        # Trigger an immediate snapshot asynchronously (with 15s debounce) to avoid 
+        # waiting for the polling loop, strictly respecting the battery!
+        global _last_event_trigger_time
+        now = time.time()
+        if now - _last_event_trigger_time > 15:
+            _last_event_trigger_time = now
+            threading.Thread(target=_fetch_snapshot_on_event, daemon=True, name="event-snapshot-worker").start()
 
 
 def _snapshot_worker():
@@ -188,63 +215,30 @@ def _snapshot_worker():
                 logger.error("Status fetch failed: %s", e)
                 consecutive_errors += 1
 
-            # Fetch snapshot
-            try:
-                img_bytes = client.get_snapshot()
-                if img_bytes:
-                    with open(CURRENT_SNAPSHOT_FILE, "wb") as f:
-                        f.write(img_bytes)
-                    _last_snapshot_time = datetime.now(timezone.utc)
-                    _snapshot_error = ""
-                    consecutive_errors = 0
-                    logger.debug("Snapshot saved (%d bytes)", len(img_bytes))
-                else:
-                    _snapshot_error = "Snapshot returned empty data — camera may be in sleep mode"
-                    logger.warning(_snapshot_error)
-            except EzvizDeviceError as e:
-                _snapshot_error = str(e)
-                logger.error("Snapshot failed: %s", e)
-                consecutive_errors += 1
+            # Fetch snapshot ONLY if polling interval > 0
+            if SNAPSHOT_INTERVAL > 0:
+                try:
+                    img_bytes = client.get_snapshot()
+                    if img_bytes:
+                        with open(CURRENT_SNAPSHOT_FILE, "wb") as f:
+                            f.write(img_bytes)
+                        _last_snapshot_time = datetime.now(timezone.utc)
+                        _snapshot_error = ""
+                        consecutive_errors = 0
+                        logger.debug("Snapshot saved (%d bytes)", len(img_bytes))
+                    else:
+                        _snapshot_error = "Snapshot returned empty data — camera may be in sleep mode"
+                        logger.warning(_snapshot_error)
+                except EzvizDeviceError as e:
+                    _snapshot_error = str(e)
+                    logger.error("Snapshot failed: %s", e)
+                    consecutive_errors += 1
 
-            # Fetch recent events
-            try:
-                _last_events = client.get_alarm_list(max_count=10)
-                
-                # MQTT Publishing
-                if ENABLE_MQTT_EVENTS and _last_events:
-                    mqtt_host = os.environ.get("MQTT_HOST")
-                    if mqtt_host:
-                        mqtt_port = int(os.environ.get("MQTT_PORT", 1883))
-                        mqtt_user = os.environ.get("MQTT_USER", "")
-                        mqtt_pass = os.environ.get("MQTT_PASSWORD", "")
-                        
-                        if _seen_events is None:
-                            # Initialize the set to avoid dumping old events on startup
-                            _seen_events = {e.get("alarm_id") for e in _last_events if e.get("alarm_id")}
-                        else:
-                            # Process oldest to newest
-                            for ev in reversed(_last_events):
-                                ev_id = ev.get("alarm_id")
-                                if ev_id and ev_id not in _seen_events:
-                                    _seen_events.add(ev_id)
-                                    
-                                    topic = f"ezviz/{CAMERA_SERIAL}/alarm"
-                                    payload = json.dumps(ev)
-                                    try:
-                                        publish.single(
-                                            topic, 
-                                            payload, 
-                                            hostname=mqtt_host, 
-                                            port=mqtt_port,
-                                            auth={'username': mqtt_user, 'password': mqtt_pass} if mqtt_user else None
-                                        )
-                                        logger.info("Published alarm %s to MQTT topic %s", ev_id, topic)
-                                    except Exception as mqtt_err:
-                                        logger.error("Failed to publish to MQTT: %s", mqtt_err)
-                                        
-            except Exception as e:
-                logger.error("Event fetch failed: %s", e)
-
+                # Fetch recent events ONLY if we are actively polling
+                try:
+                    _last_events = client.get_alarm_list(max_count=10)
+                except Exception as e:
+                    logger.error("Event fetch failed: %s", e)
         except EzvizAuthError as e:
             _snapshot_error = f"Auth error: {e}"
             logger.error("Auth error in snapshot worker: %s", e)
@@ -262,12 +256,13 @@ def _snapshot_worker():
 
         # Back off if we're seeing many consecutive errors
         if consecutive_errors > 5:
-            backoff = min(300, SNAPSHOT_INTERVAL * consecutive_errors)
+            base_interval = SNAPSHOT_INTERVAL if SNAPSHOT_INTERVAL > 0 else 60
+            backoff = min(300, base_interval * consecutive_errors)
             logger.warning("Many consecutive errors (%d), backing off %ds",
                           consecutive_errors, backoff)
             time.sleep(backoff)
         else:
-            time.sleep(SNAPSHOT_INTERVAL)
+            time.sleep(SNAPSHOT_INTERVAL if SNAPSHOT_INTERVAL > 0 else 600)
 
 
 # Start background thread
