@@ -19,7 +19,7 @@ panel_title: Ezviz Camera
 homeassistant_api: true
 hassio_api: true
 services:
-  - mqtt: want
+  - "mqtt:want"
 map:
   - type: share
     read_only: false
