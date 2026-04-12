@@ -6,3 +6,5 @@ generate_icons.py
 *.egg-info/
 dist/
 build/
+
+logerrors
