@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.1] — 2026-04-12
+
+### Fixed
+
+- **API Ports:** Exposed container port `8099` to the Home Assistant host network. Previously, endpoints like `/api/snapshot` and `/api/stream` were only accessible internally via HA Ingress and not exposed externally for integrations like Generic Camera.
+
+---
+
 ## [1.1.0] — 2026-04-12
 
 ### Added
