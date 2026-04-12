@@ -19,6 +19,15 @@ export INGRESS_ENTRY="$(bashio::addon.ingress_entry 2>/dev/null || echo '/')"
 export SUPERVISOR_TOKEN="${SUPERVISOR_TOKEN:-}"
 export HA_SUPERVISOR_URL="http://supervisor"
 
+# MQTT Service details provided by HA if configured
+if bashio::services.active "mqtt"; then
+    export MQTT_HOST="$(bashio::services.mqtt "host")"
+    export MQTT_PORT="$(bashio::services.mqtt "port")"
+    export MQTT_USER="$(bashio::services.mqtt "username")"
+    export MQTT_PASSWORD="$(bashio::services.mqtt "password")"
+    bashio::log.info "MQTT service detected: ${MQTT_HOST}:${MQTT_PORT}"
+fi
+
 # Data directory for token caching and snapshots
 export DATA_PATH="/data"
 mkdir -p /data/snapshots

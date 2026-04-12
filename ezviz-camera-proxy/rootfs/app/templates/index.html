@@ -209,9 +209,9 @@
             <div>
               <div class="flex justify-between mb-1">
                 <span style="color:var(--ha-text-muted)">Battery</span>
-                <span>{{ status.battery_level }}%</span>
+                <span id="battery-value">{{ status.battery_level }}%</span>
               </div>
-              <progress value="{{ status.battery_level }}" max="100"></progress>
+              <progress id="battery-progress" value="{{ status.battery_level }}" max="100"></progress>
             </div>
             {% endif %}
             {% if status.local_ip %}
@@ -355,6 +355,7 @@
     // -----------------------------------------------------------------------
     let countdown = {{ snapshot_interval }};
     let countdownTimer;
+    let lastSnapshotTime = null;
     let refreshing = false;
 
     function updateCountdown() {
@@ -437,6 +438,22 @@
             dot.className = 'status-dot ' + (data.online ? 'online' : 'offline');
             label.textContent = data.online ? 'Online' : 'Offline';
             label.style.color = data.online ? 'var(--ha-success)' : 'var(--ha-danger)';
+
+            if (data.battery_level !== undefined) {
+              const bVal = document.getElementById('battery-value');
+              const bProg = document.getElementById('battery-progress');
+              if (bVal) bVal.textContent = data.battery_level + '%';
+              if (bProg) bProg.value = data.battery_level;
+            }
+
+            // Auto-refresh snapshot if server has a newer one (e.g. from a real-time event)
+            if (data.last_snapshot && data.last_snapshot !== lastSnapshotTime) {
+                if (lastSnapshotTime !== null) {
+                    console.info("⚡ New snapshot available on server (" + data.last_snapshot + "). Refreshing view...");
+                    refreshSnapshot(false);
+                }
+                lastSnapshotTime = data.last_snapshot;
+            }
           }
         })
         .catch(() => {});

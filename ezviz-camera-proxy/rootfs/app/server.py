@@ -147,9 +147,6 @@ def _on_ezviz_push_message(msg):
     logger.info("⚡ Real-time Push Message received: %s", json.dumps(msg))
     
     mqtt_host = os.environ.get("MQTT_HOST")
-    if not mqtt_host:
-        return
-
     ext = msg.get("ext", {})
     ev_id = ext.get("msgId")
     if not ev_id:
@@ -162,32 +159,101 @@ def _on_ezviz_push_message(msg):
 
     if ev_id not in _seen_events:
         _seen_events.add(ev_id)
-        
-        # Publish exactly like the polled events, but formatted from the push payload
-        topic = f"ezviz/{CAMERA_SERIAL}/alarm"
-        mqtt_port = int(os.environ.get("MQTT_PORT", 1883))
-        mqtt_user = os.environ.get("MQTT_USER", "")
-        mqtt_pass = os.environ.get("MQTT_PASSWORD", "")
-        
-        try:
-            publish.single(
-                topic, 
-                json.dumps(msg), 
-                hostname=mqtt_host, 
-                port=mqtt_port,
-                auth={'username': mqtt_user, 'password': mqtt_pass} if mqtt_user else None
-            )
-            logger.info("⚡ Real-time Push: Published alarm %s to MQTT topic %s", ev_id, topic)
-        except Exception as e:
-            logger.error("⚡ Real-time Push failed to publish to HA MQTT: %s", e)
+        logger.info("⚡ New event %s detected (type: %s). Processing...", ev_id, ext.get("alert_type_code"))
 
-        # Trigger an immediate snapshot asynchronously (with 15s debounce) to avoid 
-        # waiting for the polling loop, strictly respecting the battery!
+        # Trigger snapshot fetch IMMEDIATELY (independent of MQTT publish)
         global _last_event_trigger_time
         now = time.time()
         if now - _last_event_trigger_time > 15:
             _last_event_trigger_time = now
             threading.Thread(target=_fetch_snapshot_on_event, daemon=True, name="event-snapshot-worker").start()
+        else:
+            logger.debug("⚡ Event debounce active (last snapshot was %.1fs ago)", now - _last_event_trigger_time)
+
+        # Publish to local HA MQTT if possible
+        mqtt_host = os.environ.get("MQTT_HOST")
+        if not mqtt_host:
+            logger.debug("⚡ MQTT_HOST not set, skipping local MQTT publish")
+            return
+
+        mqtt_port = int(os.environ.get("MQTT_PORT", 1883))
+        mqtt_user = os.environ.get("MQTT_USER", "")
+        mqtt_pass = os.environ.get("MQTT_PASSWORD", "")
+        auth = {'username': mqtt_user, 'password': mqtt_pass} if mqtt_user else None
+        
+        # Determine event type
+        alert_code = int(ext.get("alert_type_code", 0))
+        # 10120, 10100 = motion/person. 10006, 10000, 10002 = doorbell? 
+        # For HP2/EP4, let's treat 10120 as motion and any other specific as doorbell if it sounds like it
+        # Actually, let's publish to BOTH if we are unsure, or use a heuristic.
+        is_doorbell = alert_code in [10000, 10001, 10002, 10006, 10022]
+        event_type = "doorbell" if is_doorbell else "motion"
+        
+        # Topics requested by user: homeassistant/camera/ezviz/{serial}/{type}
+        # Note: Users often want 'state' at the end for MQTT sensors, but we'll use exactly what they asked
+        # Actually, let's use the standard discovery-compatible path too.
+        main_topic = f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_{event_type}/state"
+        user_topic = f"homeassistant/camera/ezviz/{CAMERA_SERIAL}/{event_type}"
+        
+        try:
+            # Publish 'ON' to both topics
+            for t in [main_topic, user_topic]:
+                publish.single(t, "ON", hostname=mqtt_host, port=mqtt_port, auth=auth)
+            
+            logger.info("⚡ Real-time Push: Published %s event to %s", event_type, user_topic)
+            
+            # Reset to 'OFF' after 5 seconds (simulated pulse)
+            def _reset_mqtt():
+                time.sleep(5)
+                try:
+                    for t in [main_topic, user_topic]:
+                        publish.single(t, "OFF", hostname=mqtt_host, port=mqtt_port, auth=auth)
+                except: pass
+            threading.Thread(target=_reset_mqtt, daemon=True).start()
+
+        except Exception as e:
+            logger.error("⚡ Real-time Push failed to publish to HA MQTT: %s", e)
+
+
+def _send_mqtt_discovery():
+    """Send MQTT Discovery config to Home Assistant so sensors appear automatically."""
+    mqtt_host = os.environ.get("MQTT_HOST")
+    if not mqtt_host:
+        return
+    
+    mqtt_port = int(os.environ.get("MQTT_PORT", 1883))
+    mqtt_user = os.environ.get("MQTT_USER", "")
+    mqtt_pass = os.environ.get("MQTT_PASSWORD", "")
+    auth = {'username': mqtt_user, 'password': mqtt_pass} if mqtt_user else None
+
+    device_info = {
+        "identifiers": [f"ezviz_{CAMERA_SERIAL}"],
+        "name": f"Ezviz Camera {CAMERA_SERIAL}",
+        "model": "Ezviz Proxy",
+        "manufacturer": "Ezviz"
+    }
+
+    sensors = [
+        ("motion", "Motion", "motion"),
+        ("doorbell", "Doorbell", "occupancy")
+    ]
+
+    for s_type, s_name, s_class in sensors:
+        config_topic = f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_{s_type}/config"
+        payload = {
+            "name": f"{s_name} ({CAMERA_SERIAL})",
+            "state_topic": f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_{s_type}/state",
+            "device_class": s_class,
+            "unique_id": f"ezviz_{CAMERA_SERIAL}_{s_type}",
+            "device": device_info,
+            "payload_on": "ON",
+            "payload_off": "OFF"
+        }
+        try:
+            publish.single(config_topic, json.dumps(payload), hostname=mqtt_host, port=mqtt_port, auth=auth, retain=True)
+            logger.info("⚡ MQTT Discovery: Sent config for %s", s_type)
+        except Exception as e:
+            logger.error("Failed to send MQTT discovery for %s: %s", s_type, e)
 
 
 def _snapshot_worker():
@@ -210,6 +276,9 @@ def _snapshot_worker():
                 logger.info("Snapshot worker: logging in...")
                 client.login()
                 
+                # Send MQTT discovery once per session
+                _send_mqtt_discovery()
+
                 # Start real-time push listener once logged in
                 if ENABLE_MQTT_EVENTS and ezviz_mqtt is None:
                     try:

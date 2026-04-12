@@ -1,0 +1,26 @@
+
+2026-04-12 16:52:38 [INFO] __main__: Snapshot worker started (interval=0s)
+2026-04-12 16:52:38 [INFO] __main__: ============================================================
+2026-04-12 16:52:38 [INFO] __main__: Ezviz Camera Proxy starting
+2026-04-12 16:52:38 [INFO] __main__: Camera serial : BH9350432
+2026-04-12 16:52:38 [INFO] __main__: Region        : apiieu.ezvizlife.com
+2026-04-12 16:52:38 [INFO] __main__: Snapshot every: 0s
+2026-04-12 16:52:38 [INFO] __main__: Ingress entry : /api/hassio_ingress/L4rKCQS165UqPuXJx2D4fuW_QM0ZmXlf9THlB5OU5-U
+2026-04-12 16:52:38 [INFO] __main__: ============================================================
+ * Serving Flask app 'server'
+ * Debug mode: off
+2026-04-12 16:52:38 [INFO] werkzeug: [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8099
+ * Running on http://172.30.33.16:8099
+2026-04-12 16:52:38 [INFO] werkzeug: [33mPress CTRL+C to quit[0m
+2026-04-12 16:52:43 [INFO] __main__: Snapshot worker: logging in...
+2026-04-12 16:52:43 [INFO] ezviz_client: Authenticating with Ezviz Cloud (apiieu.ezvizlife.com)...
+2026-04-12 16:52:44 [INFO] ezviz_client: Ezviz authentication successful
+2026-04-12 16:52:44 [INFO] __main__: ⚡ Subscribing to Ezviz Cloud real-time push events...
+2026-04-12 16:52:45 [INFO] ezviz_client: === Pagelist top-level keys: ['CLOUD', 'DETECTOR', 'PRODUCTS_INFO', 'VTM', 'P2P', 'CONNECTION', 'KMS', 'STATUS', 'TIME_PLAN', 'CHANNEL', 'QOS', 'meta', 'MULTI_UPGRADE_EXT', 'NODISTURB', 'UPGRADE', 'FEATURE_INFO', 'SWITCH', 'CUSTOM_TAG', 'VIDEO_QUALITY', 'page', 'resourceInfos', 'WIFI', 'deviceInfos', 'SIM_CARD'] ===
+2026-04-12 16:52:45 [INFO] ezviz_client: === deviceInfos fields for BH9350432: ['name', 'deviceSerial', 'fullSerial', 'deviceType', 'devicePicPrefix', 'version', 'supportExt', 'status', 'userDeviceCreateTime', 'channelNumber', 'hik', 'deviceCategory', 'deviceSubCategory', 'ezDeviceCapability', 'customType', 'offlineTime', 'offlineNotify', 'instructionBook', 'authCode', 'userName', 'riskLevel', 'offlineTimestamp', 'mac', 'extStatus', 'classify', 'tags'] ===
+2026-04-12 16:52:45 [INFO] ezviz_client:   deviceInfos[devicePicPrefix] = https://devpic.ezvizlife.com/device/image/CS-EP4-R100-1M8WPF-GR/
+2026-04-12 16:52:45 [INFO] ezviz_client:   deviceInfos[instructionBook] = http://devpic.ezvizlife.com/device/image/CS-EP4-R100-1M8WPF-GR/instruction.jpeg
+2026-04-12 16:52:45 [INFO] ezviz_client: === STATUS fields: ['diskNum', 'diskState', 'globalStatus', 'pirStatus', 'isEncrypt', 'encryptPwd', 'upgradeAvailable', 'upgradeProcess', 'upgradeStatus', 'alarmSoundMode', 'cloudType', 'diskStatus', 'privacyStatus', 'optionals'] ===
+2026-04-12 16:52:45 [INFO] __main__: Status updated: online=True, battery=75, alarm_pic=none

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.5] — 2026-04-12
+
+### Added
+
+- **Home Assistant MQTT Discovery**: Automatically registers "Motion" and "Doorbell" sensors in Home Assistant. They will now appear as devices/entities without manual YAML configuration.
+- **Specific Event Topics**: Now publishing to `homeassistant/camera/ezviz/{serial}/doorbell` and `homeassistant/camera/ezviz/{serial}/motion` as requested.
+
+### Fixed
+
+- **Event Mapping**: Improved logic to distinguish between person/motion events and doorbell presses based on Ezviz alert codes.
+
+---
+
+## [1.2.4] — 2026-04-12
+
+### Added
+
+- **Auto-Refresh Dashboard**: The UI now automatically refreshes the snapshot and battery level whenever a new event is detected or a manual refresh occurs.
+- **MQTT Auto-Discovery**: Fixed MQTT service detection in Home Assistant Supervisor; the add-on now correctly identifies the local broker for alarm publishing.
+
+### Fixed
+
+- **Event Reliability**: Moved event-driven snapshot triggering to run even if MQTT is not configured locally.
+
+---
+
 ## [1.2.3] — 2026-04-12
 
 ### Added
