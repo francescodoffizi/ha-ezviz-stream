@@ -399,7 +399,8 @@ def api_stream():
                 img = _placeholder_image()
             yield (
                 b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n"
+                b"Content-Type: image/jpeg\r\n"
+                b"Content-Length: " + str(len(img)).encode() + b"\r\n\r\n"
                 + img
                 + b"\r\n"
             )
