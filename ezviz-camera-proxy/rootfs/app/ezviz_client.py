@@ -416,12 +416,24 @@ class EzvizClient:
                 # Strategy 3: Device messages list
                 try:
                     logger.info("Strategy 3: trying device_messages_list...")
-                    msgs = self._client.get_device_messages_list(
-                        serials=self.camera_serial, limit=5
-                    )
-                    logger.info("Strategy 3: messages response keys: %s",
-                                list(msgs.keys()) if isinstance(msgs, dict) else type(msgs))
-                    messages = msgs.get("message") or msgs.get("messages") or []
+                    messages = []
+                    # Retry logic: when an event just happened, the image might take a few seconds to appear
+                    for attempt in range(3):
+                        msgs = self._client.get_device_messages_list(
+                            serials=self.camera_serial, limit=5
+                        )
+                        messages = msgs.get("message") or msgs.get("messages") or []
+                        
+                        if isinstance(messages, list) and messages:
+                            latest_msg = messages[0] if isinstance(messages[0], dict) else {}
+                            msg_pic = latest_msg.get("picUrl") or latest_msg.get("alarmPicUrl") or ""
+                            
+                            if not msg_pic and attempt < 2:
+                                logger.info("Strategy 3: newest message lacks picture, waiting 2.5s (attempt %d/3)", attempt + 1)
+                                time.sleep(2.5)
+                                continue
+                        break
+                        
                     if isinstance(messages, list):
                         logger.info("Strategy 3: found %d messages", len(messages))
                         for i, msg in enumerate(messages):
@@ -550,11 +562,25 @@ class EzvizClient:
 
                 # Try unified messages first
                 try:
-                    msgs = self._client.get_device_messages_list(
-                        serials=self.camera_serial,
-                        limit=min(max_count, 50),
-                    )
-                    messages = msgs.get("message") or msgs.get("messages") or []
+                    messages = []
+                    # Retry logic for newly generated alerts without pictures
+                    for attempt in range(3):
+                        msgs = self._client.get_device_messages_list(
+                            serials=self.camera_serial,
+                            limit=min(max_count, 50),
+                        )
+                        messages = msgs.get("message") or msgs.get("messages") or []
+                        
+                        if isinstance(messages, list) and messages:
+                            latest_msg = messages[0] if isinstance(messages[0], dict) else {}
+                            msg_pic = latest_msg.get("picUrl") or latest_msg.get("alarmPicUrl") or ""
+                            
+                            if not msg_pic and attempt < 2:
+                                logger.debug("get_alarm_list: newest message lacks picture, waiting 2.5s (attempt %d/3)", attempt + 1)
+                                time.sleep(2.5)
+                                continue
+                        break
+
                     result = []
                     if isinstance(messages, list):
                         for msg in messages:

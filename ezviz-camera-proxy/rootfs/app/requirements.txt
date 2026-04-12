@@ -1,4 +1,4 @@
-pyezvizapi>=0.16.0
+pyezvizapi>=1.0.4.5
 flask>=3.0.0
 Pillow>=10.0.0
 requests>=2.31.0
