@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.1] — 2026-04-12
+
+### Added
+
+- **MQTT Attributes**: Binary sensors for Motion and Doorbell now include the full Ezviz JSON event data as attributes. This makes it easy to extract the `image` URL for Home Assistant notifications.
+
+---
+
 ## [1.3.0] — 2026-04-12
 
 ### Fixed

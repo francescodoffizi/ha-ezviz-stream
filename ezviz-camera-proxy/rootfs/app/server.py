@@ -197,11 +197,15 @@ def _on_ezviz_push_message(msg):
         user_topic = f"homeassistant/camera/ezviz/{CAMERA_SERIAL}/{event_type}"
         
         try:
-            # Publish 'ON' to both topics
+            # Publish 'ON' and Attributes to both topics
             for t in [main_topic, user_topic]:
                 publish.single(t, "ON", hostname=mqtt_host, port=mqtt_port, auth=auth)
             
-            logger.info("⚡ Real-time Push: Published %s event to %s", event_type, user_topic)
+            # Attributes topic
+            attr_topic = main_topic.replace("/state", "/attributes")
+            publish.single(attr_topic, json.dumps(msg), hostname=mqtt_host, port=mqtt_port, auth=auth)
+            
+            logger.info("⚡ Real-time Push: Published %s event to %s (and attributes)", event_type, user_topic)
             
             # Reset to 'OFF' after 5 seconds (simulated pulse)
             def _reset_mqtt():
@@ -262,7 +266,8 @@ def _send_mqtt_discovery():
             "unique_id": f"ezviz_{CAMERA_SERIAL}_{s_type}",
             "device": device_info,
             "payload_on": "ON",
-            "payload_off": "OFF"
+            "payload_off": "OFF",
+            "json_attributes_topic": f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_{s_type}/attributes"
         }
         try:
             publish.single(config_topic, json.dumps(payload), hostname=mqtt_host, port=mqtt_port, auth=auth, retain=True)
