@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.3] — 2026-04-12
+
+### Fixed
+
+- **Flattened MQTT Attributes**: Event data in binary sensors is now flattened, allowing direct access to the `image` URL via `state_attr(..., 'image')` in Home Assistant automations.
+
+---
+
 ## [1.3.2] — 2026-04-12
 
 ### Added

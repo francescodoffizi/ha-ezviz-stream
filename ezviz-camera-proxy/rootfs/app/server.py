@@ -202,14 +202,19 @@ def _on_ezviz_push_message(msg):
             for t in [main_topic, user_topic, global_topic]:
                 publish.single(t, "ON", hostname=mqtt_host, port=mqtt_port, auth=auth)
             
-            # Attributes topic
+            # Attributes topic - Flatten 'ext' into top-level for easier access in HA
+            attr_data = msg.copy()
+            if "ext" in attr_data and isinstance(attr_data["ext"], dict):
+                attr_data.update(attr_data.pop("ext"))
+            
             attr_topic = main_topic.replace("/state", "/attributes")
-            publish.single(attr_topic, json.dumps(msg), hostname=mqtt_host, port=mqtt_port, auth=auth)
+            publish.single(attr_topic, json.dumps(attr_data), hostname=mqtt_host, port=mqtt_port, auth=auth)
+            
             # Also update global attributes
             global_attr_topic = global_topic.replace("/state", "/attributes")
-            publish.single(global_attr_topic, json.dumps(msg), hostname=mqtt_host, port=mqtt_port, auth=auth)
+            publish.single(global_attr_topic, json.dumps(attr_data), hostname=mqtt_host, port=mqtt_port, auth=auth)
             
-            logger.info("⚡ Real-time Push: Published %s event (code %s)", event_type, alert_code)
+            logger.info("⚡ Real-time Push: Published %s event (code %s) with flattened attributes", event_type, alert_code)
             
             # Reset to 'OFF' after 5 seconds (simulated pulse)
             def _reset_mqtt():
