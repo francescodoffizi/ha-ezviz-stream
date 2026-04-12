@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.6] — 2026-04-12
+
+### Added
+
+- **MQTT Diagnostics**: Added verbose startup logs to identify why Home Assistant MQTT services are not being detected automatically.
+- **MQTT Fallback**: Added a fallback detection for `core-mosquitto` broker in common Home Assistant setups.
+
+---
+
 ## [1.2.5] — 2026-04-12
 
 ### Added

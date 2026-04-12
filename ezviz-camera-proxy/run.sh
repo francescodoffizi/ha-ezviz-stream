@@ -20,12 +20,24 @@ export SUPERVISOR_TOKEN="${SUPERVISOR_TOKEN:-}"
 export HA_SUPERVISOR_URL="http://supervisor"
 
 # MQTT Service details provided by HA if configured
+bashio::log.info "Checking for MQTT service..."
 if bashio::services.active "mqtt"; then
     export MQTT_HOST="$(bashio::services.mqtt "host")"
     export MQTT_PORT="$(bashio::services.mqtt "port")"
     export MQTT_USER="$(bashio::services.mqtt "username")"
     export MQTT_PASSWORD="$(bashio::services.mqtt "password")"
-    bashio::log.info "MQTT service detected: ${MQTT_HOST}:${MQTT_PORT}"
+    bashio::log.info "MQTT service detected (via bashio): ${MQTT_HOST}:${MQTT_PORT}"
+else
+    bashio::log.warning "MQTT service not detected via bashio::services.active 'mqtt'"
+    # Fallback to internal name common in HA
+    if [ -z "${MQTT_HOST}" ]; then
+       bashio::log.info "Checking if 'core-mosquitto' is reachable..."
+       if ping -c 1 core-mosquitto &> /dev/null; then
+           bashio::log.info "Fallback: using core-mosquitto as MQTT host"
+           export MQTT_HOST="core-mosquitto"
+           export MQTT_PORT="1883"
+       fi
+    fi
 fi
 
 # Data directory for token caching and snapshots

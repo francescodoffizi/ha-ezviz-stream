@@ -173,7 +173,7 @@ def _on_ezviz_push_message(msg):
         # Publish to local HA MQTT if possible
         mqtt_host = os.environ.get("MQTT_HOST")
         if not mqtt_host:
-            logger.debug("⚡ MQTT_HOST not set, skipping local MQTT publish")
+            logger.info("⚠️ MQTT_HOST not set, skipping local MQTT publish (check Add-on logs for discovery errors)")
             return
 
         mqtt_port = int(os.environ.get("MQTT_PORT", 1883))
@@ -219,6 +219,7 @@ def _send_mqtt_discovery():
     """Send MQTT Discovery config to Home Assistant so sensors appear automatically."""
     mqtt_host = os.environ.get("MQTT_HOST")
     if not mqtt_host:
+        logger.warning("⚠️ MQTT_HOST not set, cannot send Discovery config")
         return
     
     mqtt_port = int(os.environ.get("MQTT_PORT", 1883))
