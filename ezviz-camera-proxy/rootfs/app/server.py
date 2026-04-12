@@ -92,9 +92,9 @@ def get_client() -> EzvizClient:
     """Return a single globally-cached EzvizClient instance."""
     global _client, _last_auth_fail_time
     
-    # If we failed auth recently, don't even try for 30 seconds to avoid "terminal limit"
-    if time.time() - _last_auth_fail_time < 30:
-        logger.warning("Auth cooling period active (30s). Skipping terminal-heavy login attempt.")
+    # If we failed auth recently, don't even try for 60 seconds to avoid "terminal limit"
+    if time.time() - _last_auth_fail_time < 60:
+        logger.warning("Auth cooling period active (60s). Skipping terminal-heavy login attempt.")
         if _client:
              return _client
         raise EzvizAuthError("Auth cooling period active")
@@ -261,7 +261,8 @@ def _snapshot_worker():
             # Force re-login on next cycle
             client = get_client()
             client.invalidate_session()
-            time.sleep(60)  # Back off on auth errors
+            logger.warning("Authentication failed in worker. Cooling down for 5 minutes...")
+            time.sleep(300) 
             continue
 
         except Exception as e:

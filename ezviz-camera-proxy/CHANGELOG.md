@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.2] — 2026-04-12
+
+### Fixed
+
+- **Aggressive Auth Backoff**: Increased the authentication retry cooling period to 60 seconds globally and to 5 minutes for the background worker. This is specifically designed to help recover from Ezviz Error 1069 ("terminal limit reached") by giving the account time to clear stale sessions.
+
+---
+
 ## [1.2.1] — 2026-04-12
 
 ### Fixed
