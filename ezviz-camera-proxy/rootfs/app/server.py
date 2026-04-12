@@ -144,6 +144,8 @@ def _on_ezviz_push_message(msg):
     if not ENABLE_MQTT_EVENTS:
         return
     
+    logger.info("⚡ Real-time Push Message received: %s", json.dumps(msg))
+    
     mqtt_host = os.environ.get("MQTT_HOST")
     if not mqtt_host:
         return
@@ -151,6 +153,7 @@ def _on_ezviz_push_message(msg):
     ext = msg.get("ext", {})
     ev_id = ext.get("msgId")
     if not ev_id:
+        logger.warning("⚡ Push message missing msgId in ext: %s", ext)
         return
 
     global _seen_events

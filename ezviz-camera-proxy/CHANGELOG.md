@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.3] — 2026-04-12
+
+### Added
+
+- **Enhanced Event Logging**: Added verbose logging for Ezviz Cloud push messages to debug doorbell and motion detection issues in real-time.
+
+---
+
 ## [1.2.2] — 2026-04-12
 
 ### Fixed
