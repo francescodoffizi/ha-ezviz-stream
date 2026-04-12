@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.7] — 2026-04-12
+
+### Fixed
+
+- **Event List recovery**: Fixed the issue where the events table on the dashboard was empty when the snapshot interval was set to 0. Events are now polled every 60 seconds from the cloud, and real-time push events are instantly added to the list.
+
+---
+
 ## [1.2.6] — 2026-04-12
 
 ### Added

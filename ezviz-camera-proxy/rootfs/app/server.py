@@ -214,6 +214,19 @@ def _on_ezviz_push_message(msg):
         except Exception as e:
             logger.error("⚡ Real-time Push failed to publish to HA MQTT: %s", e)
 
+        # Update the local events list so the dashboard shows it instantly
+        global _last_events
+        new_ev = {
+            "alarm_id": ev_id,
+            "alarm_type": ext.get("alert_type_code"),
+            "alarm_name": msg.get("alert", "Event"),
+            "alarm_time": ext.get("time", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            "pic_url": msg.get("image", ""),
+            "is_push": True
+        }
+        _last_events.insert(0, new_ev)
+        _last_events = _last_events[:20]  # Keep last 20
+
 
 def _send_mqtt_discovery():
     """Send MQTT Discovery config to Home Assistant so sensors appear automatically."""
@@ -322,11 +335,11 @@ def _snapshot_worker():
                     logger.error("Snapshot failed: %s", e)
                     consecutive_errors += 1
 
-                # Fetch recent events ONLY if we are actively polling
-                try:
-                    _last_events = client.get_alarm_list(max_count=10)
-                except Exception as e:
-                    logger.error("Event fetch failed: %s", e)
+            # Fetch recent events ANYWAY (light cloud call, doesn't wake camera)
+            try:
+                _last_events = client.get_alarm_list(max_count=10)
+            except Exception as e:
+                logger.error("Event fetch failed: %s", e)
         except EzvizAuthError as e:
             _snapshot_error = f"Auth error: {e}"
             handle_auth_error(e)
@@ -351,7 +364,9 @@ def _snapshot_worker():
                           consecutive_errors, backoff)
             time.sleep(backoff)
         else:
-            time.sleep(SNAPSHOT_INTERVAL if SNAPSHOT_INTERVAL > 0 else 600)
+            # Sleep SNAPSHOT_INTERVAL, but at least every 60s for event polling if snapshots are off
+            sleep_time = SNAPSHOT_INTERVAL if SNAPSHOT_INTERVAL > 0 else 60
+            time.sleep(sleep_time)
 
 
 # Start background thread
