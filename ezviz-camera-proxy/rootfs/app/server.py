@@ -184,34 +184,38 @@ def _on_ezviz_push_message(msg):
         
         # Determine event type
         alert_code = int(ext.get("alert_type_code", 0))
-        # 10120, 10100 = motion/person. 10006, 10000, 10002 = doorbell? 
-        # For HP2/EP4, let's treat 10120 as motion and any other specific as doorbell if it sounds like it
-        # Actually, let's publish to BOTH if we are unsure, or use a heuristic.
-        is_doorbell = alert_code in [10000, 10001, 10002, 10006, 10022]
+        # 10120, 10100 = motion/person. 
+        # Doorbell codes found in various models: 10000, 10006, 10022, 10055, 10001, 10002
+        is_doorbell = alert_code in [10000, 10001, 10002, 10006, 10022, 10054, 10055]
         event_type = "doorbell" if is_doorbell else "motion"
         
+        # Log the raw payload for unknown or doorbell events to help debug
+        logger.info("⚡ Push Event: code=%s, type=%s, msg=%s", alert_code, event_type, msg.get("alert", "N/A"))
+        
         # Topics requested by user: homeassistant/camera/ezviz/{serial}/{type}
-        # Note: Users often want 'state' at the end for MQTT sensors, but we'll use exactly what they asked
-        # Actually, let's use the standard discovery-compatible path too.
         main_topic = f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_{event_type}/state"
+        global_topic = f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_alarm/state"
         user_topic = f"homeassistant/camera/ezviz/{CAMERA_SERIAL}/{event_type}"
         
         try:
-            # Publish 'ON' and Attributes to both topics
-            for t in [main_topic, user_topic]:
+            # Publish 'ON' and Attributes to all relevant topics
+            for t in [main_topic, user_topic, global_topic]:
                 publish.single(t, "ON", hostname=mqtt_host, port=mqtt_port, auth=auth)
             
             # Attributes topic
             attr_topic = main_topic.replace("/state", "/attributes")
             publish.single(attr_topic, json.dumps(msg), hostname=mqtt_host, port=mqtt_port, auth=auth)
+            # Also update global attributes
+            global_attr_topic = global_topic.replace("/state", "/attributes")
+            publish.single(global_attr_topic, json.dumps(msg), hostname=mqtt_host, port=mqtt_port, auth=auth)
             
-            logger.info("⚡ Real-time Push: Published %s event to %s (and attributes)", event_type, user_topic)
+            logger.info("⚡ Real-time Push: Published %s event (code %s)", event_type, alert_code)
             
             # Reset to 'OFF' after 5 seconds (simulated pulse)
             def _reset_mqtt():
                 time.sleep(5)
                 try:
-                    for t in [main_topic, user_topic]:
+                    for t in [main_topic, user_topic, global_topic]:
                         publish.single(t, "OFF", hostname=mqtt_host, port=mqtt_port, auth=auth)
                 except: pass
             threading.Thread(target=_reset_mqtt, daemon=True).start()
@@ -254,7 +258,8 @@ def _send_mqtt_discovery():
 
     sensors = [
         ("motion", "Motion", "motion"),
-        ("doorbell", "Doorbell", "occupancy")
+        ("doorbell", "Doorbell", "occupancy"),
+        ("alarm", "Global Alarm", "problem")
     ]
 
     for s_type, s_name, s_class in sensors:

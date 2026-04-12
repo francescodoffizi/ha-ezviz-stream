@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.2] — 2026-04-12
+
+### Added
+
+- **Global Alarm Sensor**: Added `binary_sensor.ezviz_{serial}_alarm` that triggers for ANY detected event (motion, doorbell, person, etc.). This ensures no event is missed while debugging specific codes.
+- **Enhanced Debug Logging**: The raw payload of every push event is now logged to help identify unknown doorbell codes.
+
+### Fixed
+
+- **Expanded Doorbell Detection**: Added more potential doorbell event codes (`10000`, `10054`, `10055`, etc.) to the detection logic.
+
+---
+
 ## [1.3.1] — 2026-04-12
 
 ### Added
