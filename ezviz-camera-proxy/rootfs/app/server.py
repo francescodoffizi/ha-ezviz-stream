@@ -389,7 +389,10 @@ def api_stream():
     Frame rate is determined by SNAPSHOT_INTERVAL (or faster for UI smoothness).
     """
     def generate():
-        frame_delay = max(1.0, SNAPSHOT_INTERVAL / 2)
+        # Molti client MJPEG (incluso Home Assistant) vanno in timeout se il ritardo
+        # tra un frame e l'altro supera i 5-10 secondi. Trasmettiamo a 1 FPS per 
+        # simulare uno stream fluido anche se la foto di base cambia ogni minuto.
+        frame_delay = 1.0
         while True:
             img = _get_current_snapshot_bytes()
             if not img:

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.2] — 2026-04-12
+
+### Fixed
+
+- **MJPEG Stream Timeout**: Decreased the MJPEG `frame_delay` in `/api/stream` to 1.0 seconds (1 FPS constant). Previously the delay was bound to the `SNAPSHOT_INTERVAL` (e.g. 30 seconds), causing strict clients like Home Assistant Generic Camera to drop the connection due to timeout.
+
+---
+
 ## [1.1.1] — 2026-04-12
 
 ### Fixed
