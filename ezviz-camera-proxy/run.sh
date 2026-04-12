@@ -21,24 +21,38 @@ export HA_SUPERVISOR_URL="http://supervisor"
 
 # MQTT Service details provided by HA if configured
 bashio::log.info "Checking for MQTT service..."
-if bashio::services.active "mqtt"; then
-    export MQTT_HOST="$(bashio::services.mqtt "host")"
-    export MQTT_PORT="$(bashio::services.mqtt "port")"
-    export MQTT_USER="$(bashio::services.mqtt "username")"
-    export MQTT_PASSWORD="$(bashio::services.mqtt "password")"
+
+# Initialize with empty values to avoid unbound variable errors
+MQTT_HOST=""
+MQTT_PORT=""
+MQTT_USER=""
+MQTT_PASSWORD=""
+
+if bashio::services.available "mqtt"; then
+    MQTT_HOST="$(bashio::services.mqtt "host")"
+    MQTT_PORT="$(bashio::services.mqtt "port")"
+    MQTT_USER="$(bashio::services.mqtt "username")"
+    MQTT_PASSWORD="$(bashio::services.mqtt "password")"
     bashio::log.info "MQTT service detected (via bashio): ${MQTT_HOST}:${MQTT_PORT}"
 else
-    bashio::log.warning "MQTT service not detected via bashio::services.active 'mqtt'"
-    # Fallback to internal name common in HA
-    if [ -z "${MQTT_HOST}" ]; then
-       bashio::log.info "Checking if 'core-mosquitto' is reachable..."
-       if ping -c 1 core-mosquitto &> /dev/null; then
-           bashio::log.info "Fallback: using core-mosquitto as MQTT host"
-           export MQTT_HOST="core-mosquitto"
-           export MQTT_PORT="1883"
-       fi
-    fi
+    bashio::log.warning "MQTT service not detected via bashio"
 fi
+
+# Fallback to internal name common in HA if still empty
+if [ -z "${MQTT_HOST}" ]; then
+   bashio::log.info "Checking if 'core-mosquitto' is reachable..."
+   if ping -c 1 core-mosquitto &> /dev/null; then
+       bashio::log.info "Fallback: using core-mosquitto as MQTT host"
+       MQTT_HOST="core-mosquitto"
+       MQTT_PORT="1883"
+   fi
+fi
+
+# Export to environment for Python
+export MQTT_HOST
+export MQTT_PORT
+export MQTT_USER
+export MQTT_PASSWORD
 
 # Data directory for token caching and snapshots
 export DATA_PATH="/data"

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.8] — 2026-04-12
+
+### Fixed
+
+- **Boot Crash**: Fixed "unbound variable" error in `run.sh` that caused the add-on to crash during startup.
+- **Bashio Compatibility**: Updated MQTT service detection to use `bashio::services.available` for better compatibility with current Home Assistant versions.
+
+---
+
 ## [1.2.7] — 2026-04-12
 
 ### Fixed
