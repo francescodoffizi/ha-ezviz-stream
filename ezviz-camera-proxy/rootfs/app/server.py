@@ -32,6 +32,7 @@ from flask import (
     redirect,
     url_for,
 )
+import paho.mqtt.publish as publish
 
 from ezviz_client import EzvizClient, EzvizClientError, EzvizAuthError, EzvizDeviceError
 
@@ -81,7 +82,9 @@ _last_status: dict = {}
 _last_events: list = []
 _snapshot_error: str = ""
 _status_error: str = ""
+_status_error: str = ""
 _last_snapshot_time: datetime | None = None
+_seen_events: set | None = None
 
 
 def get_client() -> EzvizClient:
@@ -104,7 +107,7 @@ def get_client() -> EzvizClient:
 
 def _snapshot_worker():
     """Background thread: fetch a new snapshot every SNAPSHOT_INTERVAL seconds."""
-    global _last_status, _last_events, _snapshot_error, _status_error, _last_snapshot_time
+    global _last_status, _last_events, _snapshot_error, _status_error, _last_snapshot_time, _seen_events
 
     logger.info("Snapshot worker started (interval=%ds)", SNAPSHOT_INTERVAL)
     # Initial delay to allow app startup
@@ -156,6 +159,39 @@ def _snapshot_worker():
             # Fetch recent events
             try:
                 _last_events = client.get_alarm_list(max_count=10)
+                
+                # MQTT Publishing
+                if ENABLE_MQTT_EVENTS and _last_events:
+                    mqtt_host = os.environ.get("MQTT_HOST")
+                    if mqtt_host:
+                        mqtt_port = int(os.environ.get("MQTT_PORT", 1883))
+                        mqtt_user = os.environ.get("MQTT_USER", "")
+                        mqtt_pass = os.environ.get("MQTT_PASSWORD", "")
+                        
+                        if _seen_events is None:
+                            # Initialize the set to avoid dumping old events on startup
+                            _seen_events = {e.get("alarm_id") for e in _last_events if e.get("alarm_id")}
+                        else:
+                            # Process oldest to newest
+                            for ev in reversed(_last_events):
+                                ev_id = ev.get("alarm_id")
+                                if ev_id and ev_id not in _seen_events:
+                                    _seen_events.add(ev_id)
+                                    
+                                    topic = f"ezviz/{CAMERA_SERIAL}/alarm"
+                                    payload = json.dumps(ev)
+                                    try:
+                                        publish.single(
+                                            topic, 
+                                            payload, 
+                                            hostname=mqtt_host, 
+                                            port=mqtt_port,
+                                            auth={'username': mqtt_user, 'password': mqtt_pass} if mqtt_user else None
+                                        )
+                                        logger.info("Published alarm %s to MQTT topic %s", ev_id, topic)
+                                    except Exception as mqtt_err:
+                                        logger.error("Failed to publish to MQTT: %s", mqtt_err)
+                                        
             except Exception as e:
                 logger.error("Event fetch failed: %s", e)
 
