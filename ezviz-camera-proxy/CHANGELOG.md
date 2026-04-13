@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.7] — 2026-04-13
+
+### Added
+
+- **Battery Optimization**: Increased background status polling interval to 300s (5 minutes) when `SNAPSHOT_INTERVAL` is 0, relying on real-time push for events.
+- **Deep Debug**: Enhanced `/api/debug/alarms` to search multiple message subtypes (`101`, `102`, `2701`) for doorbell events.
+
+---
+
 ## [1.3.6] — 2026-04-12
 
 ### Added

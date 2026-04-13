@@ -554,8 +554,10 @@ class EzvizClient:
     # Alarm / Events
     # ------------------------------------------------------------------
 
-    def get_alarm_list(self, max_count: int = 10) -> list[dict]:
-        """Return a list of recent alarm events."""
+    def get_alarm_list(self, max_count: int = 10, s_type: str | None = None) -> list[dict]:
+        """Return a list of recent alarm events. 
+        s_type "92" is ALL_ALARMS, "101"/"102" is for calling/doorbell messages. 
+        """
         with self._lock:
             try:
                 self._ensure_authenticated()
@@ -568,6 +570,7 @@ class EzvizClient:
                         msgs = self._client.get_device_messages_list(
                             serials=self.camera_serial,
                             limit=min(max_count, 50),
+                            s_type=s_type
                         )
                         messages = msgs.get("message") or msgs.get("messages") or []
                         

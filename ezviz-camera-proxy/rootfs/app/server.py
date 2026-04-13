@@ -373,8 +373,9 @@ def _snapshot_worker():
                           consecutive_errors, backoff)
             time.sleep(backoff)
         else:
-            # Sleep SNAPSHOT_INTERVAL, but at least every 60s for event polling if snapshots are off
-            sleep_time = SNAPSHOT_INTERVAL if SNAPSHOT_INTERVAL > 0 else 60
+            # Sleep SNAPSHOT_INTERVAL, but at least every 300s (5m) for status if snapshots are off
+            # Status polling is cloud-only, but we don't need it every minute when Push is active.
+            sleep_time = SNAPSHOT_INTERVAL if SNAPSHOT_INTERVAL > 0 else 300
             time.sleep(sleep_time)
 
 
@@ -483,15 +484,26 @@ def api_snapshot():
 
 @app.route("/api/debug/alarms")
 def debug_alarms():
-    """Debug endpoint to see raw cloud alarm list."""
+    """Debug endpoint to see raw cloud alarm list across multiple subtypes."""
     try:
         client = get_client()
         if not client.is_connected():
             client.login()
-        alarms = client.get_alarm_list(CAMERA_SERIAL)
+        
+        # Test standard, doorbell, and app default subtypes
+        subtypes = ["92", "101", "102", "2701"]
+        all_results = {}
+        
+        for stype in subtypes:
+            try:
+                alarms = client.get_alarm_list(CAMERA_SERIAL, max_count=10, s_type=stype)
+                all_results[f"stype_{stype}"] = alarms
+            except Exception as se:
+                all_results[f"stype_{stype}_error"] = str(se)
+                
         return jsonify({
             "camera_serial": CAMERA_SERIAL,
-            "raw_alarms": alarms
+            "results": all_results
         })
     except Exception as e:
         logger.error("Debug alarms failed: %s", e)
