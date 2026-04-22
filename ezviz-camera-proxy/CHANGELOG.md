@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.1] — 2026-04-22
+
+### Fixed
+
+- **Event Deduplication**: Improved logic in `EventStore` to merge events based on a composite key (time + type). This fixes duplication when cloud push and polling return different ID formats for the same physical event.
+- **Push Message Accuracy**: Refined `_on_ezviz_push_message` to extract exact event timestamps from the payload, preventing incorrect dates in the dashboard.
+- **MJPEG Stream Stability**: Fixed a bug where the historical MJPEG stream would stop if an image was missing. It now skips missing frames and loops correctly.
+
+### Added
+
+- **UI Thumbnails**: Added clickable event thumbnails directly to the "Recent Events" list on the dashboard for immediate visibility.
+
+---
+
 ## [1.4.0] — 2026-04-22
 
 ### Added

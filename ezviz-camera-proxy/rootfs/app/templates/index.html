@@ -295,22 +295,37 @@
           {% for event in events %}
           <div class="event-row py-3 flex items-center justify-between text-sm">
             <div class="flex items-center gap-3">
-              <span class="badge
-                {%- if 'motion' in (event.alarm_type or '') | lower %} badge-motion
-                {%- elif 'doorbell' in (event.alarm_type or '') | lower or 'bell' in (event.alarm_type or '') | lower %} badge-doorbell
-                {%- else %} badge-other{%- endif %}">
-                {{ event.alarm_type or 'Event' }}
-              </span>
-              <span style="color:var(--ha-text)">
-                {{ event.alarm_time or '—' }}
-              </span>
+              {% set img_url = ingress_url('/api/events/image/' ~ event.alarm_id) if event.local_pic else event.alarm_pic_url %}
+              {% if img_url %}
+              <div class="w-12 h-12 bg-gray-800 rounded overflow-hidden flex-shrink-0 cursor-pointer" onclick="window.open('{{ img_url }}', '_blank')">
+                <img src="{{ img_url }}" alt="Event" class="w-full h-full object-cover" 
+                     onerror="this.parentElement.style.display='none'">
+              </div>
+              {% else %}
+              <div class="w-12 h-12 bg-gray-900 rounded flex items-center justify-center flex-shrink-0">
+                <svg class="w-6 h-6 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+              {% endif %}
+              
+              <div class="flex flex-col">
+                <span class="badge w-fit mb-1
+                  {%- if 'motion' in (event.alarm_type or '') | lower %} badge-motion
+                  {%- elif 'doorbell' in (event.alarm_type or '') | lower or 'bell' in (event.alarm_type or '') | lower %} badge-doorbell
+                  {%- else %} badge-other{%- endif %}">
+                  {{ event.alarm_type or 'Event' }}
+                </span>
+                <span style="color:var(--ha-text)">
+                  {{ event.alarm_time or '—' }}
+                </span>
+              </div>
             </div>
             <div class="flex items-center gap-2">
               {% if event.local_pic %}
               <span class="badge badge-other !bg-green-900/20 !text-green-400 text-[9px]">Local</span>
               {% endif %}
               
-              {% set img_url = ingress_url('/api/events/image/' ~ event.alarm_id) if event.local_pic else event.alarm_pic_url %}
               {% if img_url %}
               <a href="{{ img_url }}" target="_blank"
                  class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1" 
@@ -319,7 +334,7 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
-                Image
+                View
               </a>
               {% endif %}
             </div>
@@ -336,7 +351,7 @@
 
   <!-- Footer -->
   <div class="mt-6 text-center text-xs" style="color:var(--ha-text-muted)">
-    Ezviz Camera Proxy v1.4.0
+    Ezviz Camera Proxy v1.4.1
     &nbsp;·&nbsp;
     <a href="{{ ingress_url('/api/health') }}" class="underline" style="color:var(--ha-accent)">Health</a>
     &nbsp;·&nbsp;
@@ -549,8 +564,22 @@
             
             html += `<div class="event-row py-3 flex items-center justify-between text-sm">
               <div class="flex items-center gap-3">
-                <span class="badge ${badgeClass}">${e.alarm_type || 'Event'}</span>
-                <span style="color:var(--ha-text)">${e.alarm_time || '—'}</span>
+                ${imgUrl ? `
+                  <div class="w-12 h-12 bg-gray-800 rounded overflow-hidden flex-shrink-0 cursor-pointer" onclick="window.open('${imgUrl}', '_blank')">
+                    <img src="${imgUrl}" alt="Event" class="w-full h-full object-cover" onerror="this.parentElement.style.display='none'">
+                  </div>
+                ` : `
+                  <div class="w-12 h-12 bg-gray-900 rounded flex items-center justify-center flex-shrink-0">
+                    <svg class="w-6 h-6 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                `}
+                
+                <div class="flex flex-col">
+                  <span class="badge w-fit mb-1 ${badgeClass}">${e.alarm_type || 'Event'}</span>
+                  <span style="color:var(--ha-text)">${e.alarm_time || '—'}</span>
+                </div>
               </div>
               <div class="flex items-center gap-2">
                 ${localBadge}
@@ -562,7 +591,7 @@
                       <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                       <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                     </svg>
-                    Image
+                    View
                   </a>` : ''}
               </div>
             </div>`;

@@ -77,10 +77,11 @@ class EventStore:
         self.lock = threading.Lock()
 
     def add_events(self, new_events: list[dict], download_images=True):
-        """Merge new events into the store, deduplicating by alarm_id."""
+        """Merge new events into the store, deduplicating by alarm_id and timestamp/type."""
         with self.lock:
-            # Map of ID to index for fast lookup/update
+            # Map of ID to index and (time, type) to index
             existing_ids = {e["alarm_id"]: i for i, e in enumerate(self.events)}
+            existing_keys = {(e["alarm_time"], str(e["alarm_type"])): i for i, e in enumerate(self.events)}
             
             for event in new_events:
                 raw_id = event.get("alarm_id")
@@ -88,26 +89,47 @@ class EventStore:
                     continue
                 
                 ev_id = str(raw_id)
-                # Normalize keys and values
-                # Ensure alarm_type is a string for JS compatibility
+                # Ensure alarm_type is a string for JS compatibility and normalization
+                ev_type = str(event.get("alarm_type") or event.get("alarm_name") or "Event")
+                ev_time = event.get("alarm_time") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
                 normalized = {
                     "alarm_id": ev_id,
-                    "alarm_type": str(event.get("alarm_type") or event.get("alarm_name") or "Event"),
-                    "alarm_time": event.get("alarm_time") or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "alarm_type": ev_type,
+                    "alarm_time": ev_time,
                     "alarm_pic_url": event.get("alarm_pic_url") or event.get("pic_url") or "",
                     "is_push": event.get("is_push", False),
                     "local_pic": event.get("local_pic", False)
                 }
 
-                if ev_id in existing_ids:
-                    # Update existing record (might have updated pic_url)
-                    idx = existing_ids[ev_id]
-                    # Don't overwrite local_pic flag if already True
+                # Deduplication logic: check ID first, then (time, type)
+                match_idx = existing_ids.get(ev_id)
+                if match_idx is None:
+                    # Check if another event has exact same time and type (likely same event, different ID)
+                    match_idx = existing_keys.get((ev_time, ev_type))
+
+                if match_idx is not None:
+                    # Update existing record
+                    old_event = self.events[match_idx]
+                    # Merge data: prefer non-empty URLs, prefer True local_pic
+                    if not normalized["alarm_pic_url"] and old_event.get("alarm_pic_url"):
+                        normalized["alarm_pic_url"] = old_event["alarm_pic_url"]
                     if not normalized["local_pic"]:
-                        normalized["local_pic"] = self.events[idx].get("local_pic", False)
-                    self.events[idx].update(normalized)
+                        normalized["local_pic"] = old_event.get("local_pic", False)
+                    
+                    # Keep the original ID if we matched by (time, type)
+                    if ev_id != old_event["alarm_id"]:
+                        logger.debug("Merging duplicate event %s with existing %s (matched by time/type)", 
+                                    ev_id, old_event["alarm_id"])
+                        normalized["alarm_id"] = old_event["alarm_id"]
+                    
+                    self.events[match_idx].update(normalized)
                 else:
                     self.events.append(normalized)
+                    # Update maps for next iterations in the same batch
+                    idx = len(self.events) - 1
+                    existing_ids[ev_id] = idx
+                    existing_keys[(ev_time, ev_type)] = idx
 
             # Sort by time descending
             self.events.sort(key=lambda x: x["alarm_time"], reverse=True)
@@ -265,10 +287,15 @@ def _on_ezviz_push_message(msg):
     ext = msg.get("ext", {})
     # Try multiple ways to get an event ID to avoid duplicates
     ev_id = msg.get("id") or ext.get("msgId") or msg.get("extras", {}).get("ticket")
+    
+    # Capture the exact time from the push message if available
+    push_time = ext.get("time")
+    if not push_time:
+        push_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     if not ev_id:
         # Fallback to a hash of alert text and time if ID is missing
-        time_part = ext.get("time") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        ev_id = f"push_{msg.get('alert', 'Event')}_{time_part}".replace(" ", "_")
+        ev_id = f"push_{msg.get('alert', 'Event')}_{push_time}".replace(" ", "_").replace(":", "-")
     
     global _seen_events
     if _seen_events is None:
@@ -737,7 +764,10 @@ def api_stream():
                                 + b"\r\n"
                             )
                             time.sleep(frame_delay)
-                        except: continue
+                        except Exception:
+                            continue
+                    # End of history loop: pause for 1s before restarting
+                    time.sleep(1.0)
             else:
                 # Live mode
                 img = _get_current_snapshot_bytes()
