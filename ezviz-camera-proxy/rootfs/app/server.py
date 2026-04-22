@@ -83,14 +83,15 @@ class EventStore:
             existing_ids = {e["alarm_id"]: i for i, e in enumerate(self.events)}
             
             for event in new_events:
-                ev_id = event.get("alarm_id")
-                if not ev_id:
+                raw_id = event.get("alarm_id")
+                if not raw_id:
                     continue
                 
+                ev_id = str(raw_id)
                 # Normalize keys and values
                 # Ensure alarm_type is a string for JS compatibility
                 normalized = {
-                    "alarm_id": str(ev_id),
+                    "alarm_id": ev_id,
                     "alarm_type": str(event.get("alarm_type") or event.get("alarm_name") or "Event"),
                     "alarm_time": event.get("alarm_time") or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "alarm_pic_url": event.get("alarm_pic_url") or event.get("pic_url") or "",
@@ -263,7 +264,11 @@ def _on_ezviz_push_message(msg):
     
     ext = msg.get("ext", {})
     # Try multiple ways to get an event ID to avoid duplicates
-    ev_id = msg.get("id") or ext.get("msgId") or msg.get("extras", {}).get("ticket") or str(time.time())
+    ev_id = msg.get("id") or ext.get("msgId") or msg.get("extras", {}).get("ticket")
+    if not ev_id:
+        # Fallback to a hash of alert text and time if ID is missing
+        time_part = ext.get("time") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ev_id = f"push_{msg.get('alert', 'Event')}_{time_part}".replace(" ", "_")
     
     global _seen_events
     if _seen_events is None:

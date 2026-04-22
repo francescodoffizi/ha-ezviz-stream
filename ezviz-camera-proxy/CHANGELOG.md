@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.9] — 2026-04-22
+
+### Fixed
+
+- **Event Duplication**: Fixed a bug in `EventStore` where ID type mismatch (int vs str) caused duplicated entries.
+- **Improved Push Deduplication**: Enhanced fallback ID generation for push messages when unique IDs are missing from the cloud.
+
+---
+
 ## [1.3.8] — 2026-04-22
 
 ### Fixed
