@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.2] — 2026-04-22
+
+### Fixed
+
+- **Event Merging**: Fixed a deduplication bug where real-time push events (numeric codes) and cloud polling (string names) would duplicate. Normalization map now ensures consistent event names.
+- **Push Photo Recovery**: Implemented a deferred cloud polling refresh (5s after push) to ensure event thumbnails are fetched even when missing from the raw push payload.
+- **Dashboard Refresh**: Fixed "Loading status..." stuck state in the UI by refactoring the status poller to dynamically rebuild the attribute list.
+
+---
+
 ## [1.4.1] — 2026-04-22
 
 ### Fixed

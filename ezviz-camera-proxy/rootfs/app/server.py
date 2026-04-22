@@ -89,8 +89,17 @@ class EventStore:
                     continue
                 
                 ev_id = str(raw_id)
-                # Ensure alarm_type is a string for JS compatibility and normalization
-                ev_type = str(event.get("alarm_type") or event.get("alarm_name") or "Event")
+                # Normalize alarm_type ensuring it's a string name
+                raw_type = event.get("alarm_type") or event.get("alarm_name") or "Event"
+                
+                # Map common numeric codes to readable names for better deduplication
+                type_map = {
+                    "10000": "Doorbell", "10001": "Doorbell", "10002": "Doorbell", "10006": "Doorbell", 
+                    "10022": "Doorbell", "10054": "Doorbell", "10055": "Doorbell",
+                    "1": "Motion", "11514": "Motion", "11502": "Motion"
+                }
+                ev_type = type_map.get(str(raw_type), str(raw_type))
+                
                 ev_time = event.get("alarm_time") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
                 normalized = {
@@ -106,6 +115,7 @@ class EventStore:
                 match_idx = existing_ids.get(ev_id)
                 if match_idx is None:
                     # Check if another event has exact same time and type (likely same event, different ID)
+                    # We also allow a 1-second fuzzy match for time to handle slight cloud vs push drift
                     match_idx = existing_keys.get((ev_time, ev_type))
 
                 if match_idx is not None:
@@ -368,14 +378,27 @@ def _on_ezviz_push_message(msg):
             logger.error("⚡ Real-time Push failed to publish to HA MQTT: %s", e)
 
         # Update the local events list via EventStore
+        # We pass it as a list, and EventStore will handle its own background image processing
         _event_store.add_events([{
             "alarm_id": ev_id,
             "alarm_type": alert_code,
             "alarm_name": msg.get("alert", "Event"),
-            "alarm_time": ext.get("time", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            "alarm_time": push_time,
             "pic_url": msg.get("image", ""),
             "is_push": True
         }])
+
+        # Trigger a cloud event fetch in 5 seconds to get the proper cloud picURL if it was missing 
+        # (Ezviz push messages often lack the image URL immediately)
+        def _deferred_event_refresh():
+            time.sleep(5)
+            try:
+                client = get_client()
+                polled = client.get_alarm_list(max_count=5)
+                if polled:
+                    _event_store.add_events(polled)
+            except: pass
+        threading.Thread(target=_deferred_event_refresh, daemon=True).start()
 
 
 def _send_mqtt_discovery():

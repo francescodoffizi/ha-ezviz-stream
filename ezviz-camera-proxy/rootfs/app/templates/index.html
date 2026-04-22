@@ -351,7 +351,7 @@
 
   <!-- Footer -->
   <div class="mt-6 text-center text-xs" style="color:var(--ha-text-muted)">
-    Ezviz Camera Proxy v1.4.1
+    Ezviz Camera Proxy v1.4.2
     &nbsp;·&nbsp;
     <a href="{{ ingress_url('/api/health') }}" class="underline" style="color:var(--ha-accent)">Health</a>
     &nbsp;·&nbsp;
@@ -513,27 +513,54 @@
         .then(data => {
           const dot   = document.getElementById('online-dot');
           const label = document.getElementById('online-label');
+          const container = document.getElementById('status-container');
 
           if (data.error) {
             dot.className   = 'status-dot unknown';
             label.textContent = 'Error';
             label.style.color = 'var(--ha-danger)';
+            container.innerHTML = `<p class="text-sm" style="color:var(--ha-danger)"><b>Error:</b> ${data.error}</p>`;
           } else {
             dot.className = 'status-dot ' + (data.online ? 'online' : 'offline');
             label.textContent = data.online ? 'Online' : 'Offline';
             label.style.color = data.online ? 'var(--ha-success)' : 'var(--ha-danger)';
 
-            if (data.battery_level !== undefined) {
-              const bVal = document.getElementById('battery-value');
-              const bProg = document.getElementById('battery-progress');
-              if (bVal) bVal.textContent = data.battery_level + '%';
-              if (bProg) bProg.value = data.battery_level;
+            // Rebuild the status list to ensure all fields are updated and "Loading..." is removed
+            let html = '<div class="space-y-3 text-sm">';
+            
+            const rows = [
+                ['Online', data.online ? '<span class="status-dot online mr-1"></span> Yes' : '<span class="status-dot offline mr-1"></span> No'],
+                ['Battery', data.battery_level !== undefined ? `
+                    <div>
+                        <div class="flex justify-between mb-1">
+                            <span>${data.battery_level}%</span>
+                        </div>
+                        <progress value="${data.battery_level}" max="100"></progress>
+                    </div>` : null],
+                ['Local IP', data.local_ip ? `<span class="font-mono text-xs">${data.local_ip}</span>` : null],
+                ['WAN IP', data.wan_ip ? `<span class="font-mono text-xs">${data.wan_ip}</span>` : null],
+                ['Sleeping', data.is_sleeping !== undefined ? (data.is_sleeping ? 'Yes' : 'No') : null],
+                ['Last Event', data.last_alarm_type || null],
+                ['Model', data.device_sub_category || null],
+                ['Firmware', data.version ? `<span class="font-mono text-xs">${data.version}</span>` : null],
+            ];
+
+            for (const [name, val] of rows) {
+                if (val !== null) {
+                    html += `
+                    <div class="flex justify-between">
+                        <span style="color:var(--ha-text-muted)">${name}</span>
+                        <span>${val}</span>
+                    </div>`;
+                }
             }
+            html += '</div>';
+            container.innerHTML = html;
 
             // Auto-refresh snapshot if server has a newer one (e.g. from a real-time event)
             if (!historyMode && data.last_snapshot && data.last_snapshot !== lastSnapshotTime) {
                 if (lastSnapshotTime !== null) {
-                    console.info("⚡ New snapshot available on server (" + data.last_snapshot + "). Refreshing view...");
+                    console.info("⚡ New snapshot available (Source: " + data.last_snapshot + ")");
                     refreshSnapshot(false);
                 }
                 lastSnapshotTime = data.last_snapshot;
