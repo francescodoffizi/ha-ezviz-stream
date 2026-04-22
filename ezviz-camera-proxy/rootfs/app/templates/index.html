@@ -158,6 +158,13 @@
             </svg>
             Refresh
           </button>
+          <button class="btn-primary flex items-center gap-2" id="history-btn" onclick="toggleHistory()" style="background:var(--ha-warning)">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Play History
+          </button>
         </div>
       </div>
 
@@ -178,6 +185,8 @@
 
       <p class="text-xs mt-2" style="color:var(--ha-text-muted)">
         Last updated: <span id="last-updated">{{ last_snapshot_time or 'Never' }}</span>
+        &nbsp;·&nbsp;
+        <span id="mode-badge" class="badge badge-other text-[10px]">Live</span>
         &nbsp;·&nbsp;
         <a href="{{ ingress_url('/api/stream') }}" target="_blank"
            class="underline" style="color:var(--ha-accent)">
@@ -296,12 +305,19 @@
                 {{ event.alarm_time or '—' }}
               </span>
             </div>
-            {% if event.alarm_pic_url %}
-            <a href="{{ event.alarm_pic_url }}" target="_blank"
-               class="text-xs underline" style="color:var(--ha-accent)">
-              View image ↗
-            </a>
-            {% endif %}
+            <div class="flex items-center gap-2">
+              {% if event.local_pic %}
+              <span class="badge badge-other !bg-green-900/20 !text-green-400 text-[9px]">Local</span>
+              {% endif %}
+              
+              {% set img_url = ingress_url('/api/events/image/' ~ event.alarm_id) if event.local_pic else event.alarm_pic_url %}
+              {% if img_url %}
+              <a href="{{ img_url }}" target="_blank"
+                 class="text-xs underline" style="color:var(--ha-accent)">
+                View image ↗
+              </a>
+              {% endif %}
+            </div>
           </div>
           {% endfor %}
         </div>
@@ -417,7 +433,55 @@
     }
 
     function manualRefresh() {
+      // If we were in history mode, switch back to live
+      if (historyMode) {
+          toggleHistory();
+      }
       refreshSnapshot(true);
+    }
+
+    // -----------------------------------------------------------------------
+    // History Playback
+    // -----------------------------------------------------------------------
+    let historyMode = false;
+    
+    function toggleHistory() {
+      const img = document.getElementById('stream-img');
+      const btn = document.getElementById('history-btn');
+      const badge = document.getElementById('mode-badge');
+      const refreshBtn = document.getElementById('refresh-btn');
+      
+      historyMode = !historyMode;
+      
+      if (historyMode) {
+          btn.innerHTML = `
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+            </svg> Stop History`;
+          btn.style.background = 'var(--ha-danger)';
+          badge.textContent = 'History Playback';
+          badge.className = 'badge badge-motion text-[10px]';
+          
+          // Switch image source to history stream
+          img.src = url('/api/stream?history=true&t=' + Date.now());
+          
+          showToast('Playing snapshot history...');
+      } else {
+          btn.innerHTML = `
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg> Play History`;
+          btn.style.background = 'var(--ha-warning)';
+          badge.textContent = 'Live';
+          badge.className = 'badge badge-other text-[10px]';
+          
+          // Switch back to live snapshot
+          img.src = url('/api/snapshot?t=' + Date.now());
+          
+          showToast('Returned to Live view');
+      }
     }
 
     // -----------------------------------------------------------------------
@@ -447,7 +511,7 @@
             }
 
             // Auto-refresh snapshot if server has a newer one (e.g. from a real-time event)
-            if (data.last_snapshot && data.last_snapshot !== lastSnapshotTime) {
+            if (!historyMode && data.last_snapshot && data.last_snapshot !== lastSnapshotTime) {
                 if (lastSnapshotTime !== null) {
                     console.info("⚡ New snapshot available on server (" + data.last_snapshot + "). Refreshing view...");
                     refreshSnapshot(false);
@@ -471,17 +535,22 @@
           let html = '<div class="divide-y" style="border-color:var(--ha-border)">';
           for (const e of data.events) {
             let badgeClass = 'badge-other';
-            if ((e.alarm_type||'').toLowerCase().includes('motion'))   badgeClass = 'badge-motion';
-            if ((e.alarm_type||'').toLowerCase().includes('doorbell') ||
-                (e.alarm_type||'').toLowerCase().includes('bell'))     badgeClass = 'badge-doorbell';
+            const typeStr = String(e.alarm_type || 'Event').toLowerCase();
+            if (typeStr.includes('motion'))   badgeClass = 'badge-motion';
+            if (typeStr.includes('doorbell') || typeStr.includes('bell')) badgeClass = 'badge-doorbell';
+            
+            const imgUrl = e.local_pic ? url('/api/events/image/' + e.alarm_id) : (e.alarm_pic_url || '');
+            const localBadge = e.local_pic ? '<span class="badge badge-other !bg-green-900/20 !text-green-400 text-[9px] mr-1">Local</span>' : '';
+            
             html += `<div class="event-row py-3 flex items-center justify-between text-sm">
               <div class="flex items-center gap-3">
                 <span class="badge ${badgeClass}">${e.alarm_type || 'Event'}</span>
                 <span style="color:var(--ha-text)">${e.alarm_time || '—'}</span>
               </div>
-              ${e.alarm_pic_url
-                ? `<a href="${e.alarm_pic_url}" target="_blank" class="text-xs underline" style="color:var(--ha-accent)">View image ↗</a>`
-                : ''}
+              <div class="flex items-center gap-2">
+                ${localBadge}
+                ${imgUrl ? `<a href="${imgUrl}" target="_blank" class="text-xs underline" style="color:var(--ha-accent)">View image ↗</a>` : ''}
+              </div>
             </div>`;
           }
           html += '</div>';

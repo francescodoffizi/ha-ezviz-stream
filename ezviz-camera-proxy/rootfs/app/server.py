@@ -65,6 +65,120 @@ SNAPSHOT_PATH = DATA_PATH / "snapshots"
 SNAPSHOT_PATH.mkdir(parents=True, exist_ok=True)
 
 CURRENT_SNAPSHOT_FILE = SNAPSHOT_PATH / "current.jpg"
+EVENT_SNAPSHOT_PATH = SNAPSHOT_PATH / "events"
+EVENT_SNAPSHOT_PATH.mkdir(parents=True, exist_ok=True)
+
+
+class EventStore:
+    """Manages a list of recent events with deduplication and local image caching."""
+    def __init__(self, max_size=20):
+        self.max_size = max_size
+        self.events = []
+        self.lock = threading.Lock()
+
+    def add_events(self, new_events: list[dict], download_images=True):
+        """Merge new events into the store, deduplicating by alarm_id."""
+        with self.lock:
+            # Map of ID to index for fast lookup/update
+            existing_ids = {e["alarm_id"]: i for i, e in enumerate(self.events)}
+            
+            for event in new_events:
+                ev_id = event.get("alarm_id")
+                if not ev_id:
+                    continue
+                
+                # Normalize keys and values
+                # Ensure alarm_type is a string for JS compatibility
+                normalized = {
+                    "alarm_id": str(ev_id),
+                    "alarm_type": str(event.get("alarm_type") or event.get("alarm_name") or "Event"),
+                    "alarm_time": event.get("alarm_time") or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "alarm_pic_url": event.get("alarm_pic_url") or event.get("pic_url") or "",
+                    "is_push": event.get("is_push", False),
+                    "local_pic": event.get("local_pic", False)
+                }
+
+                if ev_id in existing_ids:
+                    # Update existing record (might have updated pic_url)
+                    idx = existing_ids[ev_id]
+                    # Don't overwrite local_pic flag if already True
+                    if not normalized["local_pic"]:
+                        normalized["local_pic"] = self.events[idx].get("local_pic", False)
+                    self.events[idx].update(normalized)
+                else:
+                    self.events.append(normalized)
+
+            # Sort by time descending
+            self.events.sort(key=lambda x: x["alarm_time"], reverse=True)
+            self.events = self.events[:self.max_size]
+            
+            # Prune old images from disk
+            self._prune_disk()
+            
+        if download_images:
+            # Download images in background for events that don't have local_pic
+            threading.Thread(target=self._process_images, daemon=True, name="event-image-processor").start()
+
+    def _prune_disk(self):
+        """Delete images from EVENT_SNAPSHOT_PATH that are no longer in self.events."""
+        try:
+            current_ids = {e["alarm_id"] for e in self.events if e.get("local_pic")}
+            for f in EVENT_SNAPSHOT_PATH.glob("event_*.jpg"):
+                # Extract ID from event_<id>.jpg
+                try:
+                    f_id = f.name[6:-4]
+                    if f_id not in current_ids:
+                        f.unlink()
+                        logger.debug("Pruned old event image: %s", f.name)
+                except: continue
+        except Exception as e:
+            logger.error("Disk pruning failed: %s", e)
+
+    def _process_images(self):
+        """Download images for events that only have cloud URLs."""
+        try:
+            client = get_client()
+            with self.lock:
+                to_process = [e for e in self.events if e.get("alarm_pic_url") and not e.get("local_pic")]
+            
+            for ev in to_process:
+                url = ev["alarm_pic_url"]
+                if not url or not url.startswith("http"):
+                    continue
+                
+                logger.info("Downloading event image for %s...", ev["alarm_id"])
+                img_bytes = client._download_image(url)
+                if img_bytes:
+                    filename = f"event_{ev['alarm_id']}.jpg"
+                    filepath = EVENT_SNAPSHOT_PATH / filename
+                    filepath.write_bytes(img_bytes)
+                    
+                    with self.lock:
+                        # Update event in list
+                        for e in self.events:
+                            if e["alarm_id"] == ev["alarm_id"]:
+                                e["local_pic"] = True
+                                break
+                    logger.info("Saved event image: %s", filename)
+                time.sleep(1) # Throttle
+        except Exception as e:
+            logger.error("Event image processor failed: %s", e)
+
+    def get_all(self):
+        with self.lock:
+            return list(self.events)
+
+    def get_image_list(self):
+        """Return list of local image paths for the history playback loop."""
+        with self.lock:
+            paths = []
+            for e in self.events:
+                if e.get("local_pic"):
+                    filename = f"event_{e['alarm_id']}.jpg"
+                    path = EVENT_SNAPSHOT_PATH / filename
+                    if path.exists():
+                        paths.append(path)
+            return paths
 
 # ---------------------------------------------------------------------------
 # Flask App — use APPLICATION_ROOT for ingress prefix
@@ -79,7 +193,7 @@ app.config["PREFERRED_URL_SCHEME"] = "http"
 _client: EzvizClient | None = None
 _client_lock = threading.Lock()
 _last_status: dict = {}
-_last_events: list = []
+_event_store = EventStore(max_size=30)
 _snapshot_error: str = ""
 _status_error: str = ""
 _last_snapshot_time: datetime | None = None
@@ -221,18 +335,15 @@ def _on_ezviz_push_message(msg):
         except Exception as e:
             logger.error("⚡ Real-time Push failed to publish to HA MQTT: %s", e)
 
-        # Update the local events list
-        global _last_events
-        new_ev = {
+        # Update the local events list via EventStore
+        _event_store.add_events([{
             "alarm_id": ev_id,
             "alarm_type": alert_code,
             "alarm_name": msg.get("alert", "Event"),
             "alarm_time": ext.get("time", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
             "pic_url": msg.get("image", ""),
             "is_push": True
-        }
-        _last_events.insert(0, new_ev)
-        _last_events = _last_events[:20]  # Keep last 20
+        }])
 
 
 def _send_mqtt_discovery():
@@ -281,7 +392,7 @@ def _send_mqtt_discovery():
 
 def _snapshot_worker():
     """Background thread: fetch a new snapshot every SNAPSHOT_INTERVAL seconds."""
-    global _last_status, _last_events, _snapshot_error, _status_error, _last_snapshot_time, _seen_events, ezviz_mqtt
+    global _last_status, _snapshot_error, _status_error, _last_snapshot_time, _seen_events, ezviz_mqtt
 
     logger.info("Snapshot worker started (interval=%ds)", SNAPSHOT_INTERVAL)
     # Initial delay to allow app startup
@@ -346,7 +457,9 @@ def _snapshot_worker():
 
             # Fetch recent events ANYWAY (light cloud call, doesn't wake camera)
             try:
-                _last_events = client.get_alarm_list(max_count=10)
+                polled_events = client.get_alarm_list(max_count=20)
+                if polled_events:
+                    _event_store.add_events(polled_events)
             except Exception as e:
                 logger.error("Event fetch failed: %s", e)
         except EzvizAuthError as e:
@@ -456,6 +569,7 @@ app.jinja_env.globals["snapshot_interval"] = SNAPSHOT_INTERVAL
 @app.route("/")
 def index():
     """Main dashboard."""
+    events = _event_store.get_all()
     return render_template(
         "index.html",
         camera_serial=CAMERA_SERIAL,
@@ -463,7 +577,7 @@ def index():
         ingress_entry=INGRESS_ENTRY,
         last_snapshot_time=_last_snapshot_time.isoformat() if _last_snapshot_time else None,
         status=_last_status,
-        events=_last_events[:5],
+        events=events[:10],
         snapshot_error=_snapshot_error,
         status_error=_status_error,
     )
@@ -559,45 +673,86 @@ def api_status():
 
 
 @app.route("/api/events")
+@app.route("/api/events/list")
 def api_events():
     """Return recent alarm events as JSON."""
+    events = _event_store.get_all()
     return jsonify({
-        "events": _last_events,
-        "count": len(_last_events),
+        "events": events,
+        "count": len(events),
         "camera_serial": CAMERA_SERIAL,
     })
+
+
+@app.route("/api/events/image/<alarm_id>")
+def api_event_image(alarm_id):
+    """Serve a locally-saved event image."""
+    filename = f"event_{alarm_id}.jpg"
+    filepath = EVENT_SNAPSHOT_PATH / filename
+    if filepath.exists():
+        return send_file(filepath, mimetype="image/jpeg")
+    return jsonify({"error": "Image not found locally"}), 404
 
 
 @app.route("/api/stream")
 def api_stream():
     """
-    MJPEG stream: continuously push the latest snapshot as MJPEG frames.
-    Frame rate is determined by SNAPSHOT_INTERVAL (or faster for UI smoothness).
+    MJPEG stream: continuously push snapshots as MJPEG frames.
+    If ?history=true is passed, loops through recent event snapshots.
+    Otherwise, pushes the latest live snapshot.
     """
+    is_history = request.args.get("history", "false").lower() == "true"
+
     def generate():
-        # Molti client MJPEG (incluso Home Assistant) vanno in timeout se il ritardo
-        # tra un frame e l'altro supera i 5-10 secondi. Trasmettiamo a 1 FPS per 
-        # simulare uno stream fluido anche se la foto di base cambia ogni minuto.
-        frame_delay = 1.0
+        frame_delay = 1.0 # 1 FPS
         while True:
-            img = _get_current_snapshot_bytes()
-            if not img:
-                img = _placeholder_image()
-            yield (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n"
-                b"Content-Length: " + str(len(img)).encode() + b"\r\n\r\n"
-                + img
-                + b"\r\n"
-            )
-            time.sleep(frame_delay)
+            if is_history:
+                images = _event_store.get_image_list()
+                if not images:
+                    # Fallback to placeholder if no history
+                    img = _placeholder_image()
+                    yield (
+                        b"--frame\r\n"
+                        b"Content-Type: image/jpeg\r\n"
+                        b"Content-Length: " + str(len(img)).encode() + b"\r\n\r\n"
+                        + img
+                        + b"\r\n"
+                    )
+                    time.sleep(2)
+                else:
+                    # Loop through historical images
+                    for img_path in images:
+                        try:
+                            img = img_path.read_bytes()
+                            yield (
+                                b"--frame\r\n"
+                                b"Content-Type: image/jpeg\r\n"
+                                b"Content-Length: " + str(len(img)).encode() + b"\r\n\r\n"
+                                + img
+                                + b"\r\n"
+                            )
+                            time.sleep(frame_delay)
+                        except: continue
+            else:
+                # Live mode
+                img = _get_current_snapshot_bytes()
+                if not img:
+                    img = _placeholder_image()
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n"
+                    b"Content-Length: " + str(len(img)).encode() + b"\r\n\r\n"
+                    + img
+                    + b"\r\n"
+                )
+                time.sleep(frame_delay)
 
     return Response(
         generate(),
         mimetype="multipart/x-mixed-replace; boundary=frame",
         headers={
             "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",  # Disable Nginx buffering for streaming
+            "X-Accel-Buffering": "no",
         },
     )
 
