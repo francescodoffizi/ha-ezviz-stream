@@ -313,8 +313,13 @@
               {% set img_url = ingress_url('/api/events/image/' ~ event.alarm_id) if event.local_pic else event.alarm_pic_url %}
               {% if img_url %}
               <a href="{{ img_url }}" target="_blank"
-                 class="text-xs underline" style="color:var(--ha-accent)">
-                View image ↗
+                 class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1" 
+                 style="background:var(--ha-accent); color:white; border-radius:4px; text-decoration:none;">
+                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                Image
               </a>
               {% endif %}
             </div>
@@ -331,7 +336,7 @@
 
   <!-- Footer -->
   <div class="mt-6 text-center text-xs" style="color:var(--ha-text-muted)">
-    Ezviz Camera Proxy v1.3.9
+    Ezviz Camera Proxy v1.4.0
     &nbsp;·&nbsp;
     <a href="{{ ingress_url('/api/health') }}" class="underline" style="color:var(--ha-accent)">Health</a>
     &nbsp;·&nbsp;
@@ -549,7 +554,16 @@
               </div>
               <div class="flex items-center gap-2">
                 ${localBadge}
-                ${imgUrl ? `<a href="${imgUrl}" target="_blank" class="text-xs underline" style="color:var(--ha-accent)">View image ↗</a>` : ''}
+                ${imgUrl ? `
+                  <a href="${imgUrl}" target="_blank" 
+                     class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1" 
+                     style="background:var(--ha-accent); color:white; border-radius:4px; text-decoration:none;">
+                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    Image
+                  </a>` : ''}
               </div>
             </div>`;
           }

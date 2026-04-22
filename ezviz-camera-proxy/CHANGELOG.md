@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.0] — 2026-04-22
+
+### Added
+
+- **Enhanced Event UI**: Replaced "View image" links with dedicated buttons and eye icons for better visibility and usability.
+
+---
+
 ## [1.3.9] — 2026-04-22
 
 ### Fixed
