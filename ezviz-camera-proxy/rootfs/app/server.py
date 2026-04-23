@@ -19,7 +19,7 @@ import logging
 import os
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from flask import (
@@ -111,17 +111,46 @@ class EventStore:
                     "local_pic": event.get("local_pic", False)
                 }
 
-                # Deduplication logic: check ID first, then (time, type)
+                # Deduplication logic: check ID first
                 match_idx = existing_ids.get(ev_id)
+                
                 if match_idx is None:
                     # Check if another event has exact same time and type (likely same event, different ID)
-                    # We also allow a 1-second fuzzy match for time to handle slight cloud vs push drift
                     match_idx = existing_keys.get((ev_time, ev_type))
+                    
+                if match_idx is None:
+                    # Optional: 1-second fuzzy match for time to handle slight cloud vs push drift
+                    # We check -1s and +1s for the same type
+                    try:
+                        dt = datetime.strptime(ev_time, "%Y-%m-%d %H:%M:%S")
+                        for offset in [-1, 1]:
+                            fuzzy_time = (dt + timedelta(seconds=offset)).strftime("%Y-%m-%d %H:%M:%S")
+                            match_idx = existing_keys.get((fuzzy_time, ev_type))
+                            if match_idx is not None: break
+                    except: pass
 
                 if match_idx is not None:
                     # Update existing record
                     old_event = self.events[match_idx]
-                    # Merge data: prefer non-empty URLs, prefer True local_pic
+                    
+                    # MERGE LOGIC:
+                    # 1. Always prefer the original time if the new one is significantly different 
+                    #    (unless the new one is specifically marked as more reliable, which we don't know).
+                    #    Crucially, prevent "polling batch times" (multiple events getting same 'now()' time)
+                    #    from overwriting distinct historical times.
+                    if old_event["alarm_time"] != ev_time:
+                        # If the new time was a "now" fallback in server.py (which we can't perfectly know here, 
+                        # but we can guess if it differs from old_event), keep the old one.
+                        # Rule: if old event has a time and new one is just "poll time", keep old.
+                        if old_event["alarm_time"] and not event.get("alarm_time"):
+                             normalized["alarm_time"] = old_event["alarm_time"]
+                    
+                    # 2. Prefer specific type names over generic ones or codes
+                    if str(old_event["alarm_type"]).lower() not in ["event", "10120", "12663"] and \
+                       str(ev_type).lower() in ["event", "10120", "12663"]:
+                        normalized["alarm_type"] = old_event["alarm_type"]
+
+                    # 3. Merge picture info: prefer non-empty URLs, prefer True local_pic
                     if not normalized["alarm_pic_url"] and old_event.get("alarm_pic_url"):
                         normalized["alarm_pic_url"] = old_event["alarm_pic_url"]
                     if not normalized["local_pic"]:

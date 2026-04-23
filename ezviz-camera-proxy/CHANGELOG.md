@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.3] — 2026-04-23
+
+### Fixed
+
+- **Event Flood Prevention**: Refined `EventStore` logic to protect rich push-notification data (exact timestamps and specific event names) from being overwritten by generic polling data.
+- **Improved Time Accuracy**: Enhanced `EzvizClient` to extract timestamps from raw integer fields when cloud string representations are missing.
+- **Fuzzy Deduplication**: Implemented a 1-second fuzzy match for event timestamps to handle drift between real-time push and cloud polling.
+
+---
+
 ## [1.4.2] — 2026-04-22
 
 ### Fixed

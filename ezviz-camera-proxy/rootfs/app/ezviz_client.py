@@ -595,7 +595,9 @@ class EzvizClient:
                                     "alarm_type": msg.get("sampleName")
                                     or msg.get("alarmType", ""),
                                     "alarm_time": msg.get("msgTimeStr")
-                                    or msg.get("alarmStartTimeStr", ""),
+                                    or msg.get("alarmStartTimeStr")
+                                    or (datetime.fromtimestamp(int(msg["msgTime"])/1000).strftime("%Y-%m-%d %H:%M:%S") if msg.get("msgTime") else "")
+                                    or (datetime.fromtimestamp(int(msg["alarmStartTime"])/1000).strftime("%Y-%m-%d %H:%M:%S") if msg.get("alarmStartTime") else ""),
                                     "alarm_pic_url": msg.get("picUrl")
                                     or msg.get("alarmPicUrl", ""),
                                     "device_serial": msg.get("deviceSerial", ""),
@@ -626,7 +628,8 @@ class EzvizClient:
                                     "alarm_id": alarm.get("alarmId", ""),
                                     "alarm_type": alarm.get("sampleName")
                                     or alarm.get("alarmType", ""),
-                                    "alarm_time": alarm.get("alarmStartTimeStr", ""),
+                                    "alarm_time": alarm.get("alarmStartTimeStr")
+                                    or (datetime.fromtimestamp(int(alarm["alarmStartTime"])/1000).strftime("%Y-%m-%d %H:%M:%S") if alarm.get("alarmStartTime") else ""),
                                     "alarm_pic_url": alarm.get("alarmPicUrl", ""),
                                     "device_serial": self.camera_serial,
                                 }
