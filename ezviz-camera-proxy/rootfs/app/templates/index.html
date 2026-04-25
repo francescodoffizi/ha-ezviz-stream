@@ -389,7 +389,7 @@
 
   <!-- Footer -->
   <div class="mt-6 text-center text-xs" style="color:var(--ha-text-muted)">
-    Ezviz Camera Proxy v1.5.0
+    Ezviz Camera Proxy v1.6.2
     &nbsp;·&nbsp;
     <a href="{{ ingress_url('/api/health') }}" class="underline" style="color:var(--ha-accent)">Salute</a>
     &nbsp;·&nbsp;
@@ -490,6 +490,18 @@
       } else {
         countdown--;
       }
+    }
+
+    function startModalLoop() {
+        const img = document.getElementById('modal-img');
+        const loopUrl = url('/api/stream?history=true&t=' + Date.now());
+        img.src = loopUrl;
+    }
+
+    // Modal close should stop MJPEG stream to save bandwidth
+    function closeModal() {
+        document.getElementById('event-modal').style.display = 'none';
+        document.getElementById('modal-img').src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
     }
 
     function startCountdown() {
@@ -637,7 +649,8 @@
                 ['Local IP', data.local_ip ? `<span class="font-mono text-xs">${data.local_ip}</span>` : null],
                 ['WAN IP', data.wan_ip ? `<span class="font-mono text-xs">${data.wan_ip}</span>` : null],
                 ['Sleeping', data.is_sleeping !== undefined ? (data.is_sleeping ? t('Yes') : t('No')) : null],
-                ['Last Event', t(data.last_alarm_type) || null],
+                ['Ultima Suonata', data.last_doorbell_time && data.last_doorbell_time !== 'Mai' ? `<span class="text-xs">${new Date(data.last_doorbell_time + 'Z').toLocaleString()}</span>` : null],
+                ['Ultimo Evento', data.last_alarm_time && data.last_alarm_time !== 'Mai' ? `<div><div class="font-bold">${t(data.last_alarm_type)}</div><div class="text-[10px] text-muted">${new Date(data.last_alarm_time + 'Z').toLocaleString()}</div></div>` : null],
                 ['Model', data.device_sub_category || null],
                 ['Firmware', data.version ? `<span class="font-mono text-xs">${data.version}</span>` : null],
             ];

@@ -69,7 +69,9 @@ SNAPSHOT_PATH.mkdir(parents=True, exist_ok=True)
 CURRENT_SNAPSHOT_FILE = SNAPSHOT_PATH / "current.jpg"
 EVENT_SNAPSHOT_PATH = SNAPSHOT_PATH / "events"
 EVENT_SNAPSHOT_PATH.mkdir(parents=True, exist_ok=True)
-
+_last_alarm_type = "Mai"
+_last_alarm_time = "Mai"
+_last_doorbell_time = "Mai"
 
 class EventStore:
     """Manages a list of recent events with deduplication and local image caching."""
@@ -79,126 +81,87 @@ class EventStore:
         self.lock = threading.Lock()
 
     def add_events(self, new_events: list[dict], download_images=True):
-        """Merge new events into the store, deduplicating by alarm_id and timestamp/type."""
+        """Merge new events into the store, deduplicating with fuzzy time matching."""
         with self.lock:
-            # Map of ID to index and (time, type) to index
-            existing_ids = {e["alarm_id"]: i for i, e in enumerate(self.events)}
-            existing_keys = {(e["alarm_time"], str(e["alarm_type"])): i for i, e in enumerate(self.events)}
-            
             for event in new_events:
                 raw_id = event.get("alarm_id")
-                if not raw_id:
-                    continue
+                if not raw_id: continue
                 
                 ev_id = str(raw_id)
-                # Normalize alarm_type ensuring it's a string name
                 raw_type = event.get("alarm_type") or event.get("alarm_name") or "Event"
                 
-                # Map common numeric codes to readable names for better deduplication
+                # Normalize types
                 type_map = {
                     "10000": "Doorbell", "10001": "Doorbell", "10002": "Doorbell", "10006": "Doorbell", 
                     "10022": "Doorbell", "10054": "Doorbell", "10055": "Doorbell",
                     "1": "Motion", "11514": "Motion", "11502": "Motion"
                 }
                 ev_type = type_map.get(str(raw_type), str(raw_type))
-                
                 ev_time = event.get("alarm_time") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                match_idx = None
+                # 1. Match by ID
+                for i, e in enumerate(self.events):
+                    if e["alarm_id"] == ev_id:
+                        match_idx = i
+                        break
                 
+                # 2. Match by fuzzy time (10s) and same camera
+                if match_idx is None:
+                    try:
+                        dt = datetime.strptime(ev_time, "%Y-%m-%d %H:%M:%S")
+                        for i, e in enumerate(self.events):
+                            if e.get("device_serial") == event.get("device_serial"):
+                                e_dt = datetime.strptime(e["alarm_time"], "%Y-%m-%d %H:%M:%S")
+                                if abs((dt - e_dt).total_seconds()) <= 10:
+                                    match_idx = i
+                                    break
+                    except: pass
+
                 normalized = {
                     "alarm_id": ev_id,
                     "alarm_type": ev_type,
                     "alarm_time": ev_time,
                     "alarm_pic_url": event.get("alarm_pic_url") or event.get("pic_url") or "",
                     "is_push": event.get("is_push", False),
-                    "local_pic": event.get("local_pic", False)
+                    "local_pic": event.get("local_pic", False),
+                    "device_serial": event.get("device_serial", CAMERA_SERIAL)
                 }
 
-                # Deduplication logic: check ID first
-                match_idx = existing_ids.get(ev_id)
-                
-                if match_idx is None:
-                    # Check if another event has same time and type (already existed)
-                    match_idx = existing_keys.get((ev_time, ev_type))
-                
-                if match_idx is None:
-                    # IMPROVED DEDUPLICATION: Check if there's an event within 5s for the same camera
-                    # regardless of type (accrued many duplicates like 'Face Detection' + 'Human Detection')
-                    try:
-                        dt = datetime.strptime(ev_time, "%Y-%m-%d %H:%M:%S")
-                        for e_idx, e in enumerate(self.events):
-                            if e.get("device_serial", "") == event.get("device_serial", ""):
-                                try:
-                                    e_dt = datetime.strptime(e["alarm_time"], "%Y-%m-%d %H:%M:%S")
-                                    if abs((dt - e_dt).total_seconds()) <= 5:
-                                        match_idx = e_idx
-                                        break
-                                except: continue
-                    except: pass
-                    
                 if match_idx is not None:
-                    # Update existing record
-                    old_event = self.events[match_idx]
-                    
-                    # MERGE LOGIC:
-                    # 1. Always prefer the original time if the new one is significantly different 
-                    #    (unless the new one is specifically marked as more reliable, which we don't know).
-                    #    Crucially, prevent "polling batch times" (multiple events getting same 'now()' time)
-                    #    from overwriting distinct historical times.
-                    if old_event["alarm_time"] != ev_time:
-                        # If the new time was a "now" fallback in server.py (which we can't perfectly know here, 
-                        # but we can guess if it differs from old_event), keep the old one.
-                        # Rule: if old event has a time and new one is just "poll time", keep old.
-                        if old_event["alarm_time"] and not event.get("alarm_time"):
-                             normalized["alarm_time"] = old_event["alarm_time"]
-                    
-                    # 2. Prefer specific type names over generic ones or codes
+                    old = self.events[match_idx]
+                    # Merge: prefer better type
                     generic_codes = ["10120", "12663", "event", "alarm"]
-                    is_generic = lambda t: str(t).lower() in generic_codes or str(t).isdigit()
+                    is_gen = lambda t: str(t).lower() in generic_codes or str(t).isdigit()
                     
-                    current_type = ev_type
-                    old_type = old_event["alarm_type"]
+                    if is_gen(old["alarm_type"]) and not is_gen(ev_type):
+                        old["alarm_type"] = ev_type
                     
-                    better_types = ["face", "person", "doorbell", "call", "appeared", "human"]
-                    current_is_better = any(bt in current_type.lower() for bt in better_types)
-                    old_is_better = any(bt in old_type.lower() for bt in better_types)
-
-                    if old_is_better and not current_is_better:
-                        normalized["alarm_type"] = old_type
-                    elif not old_is_better and current_is_better:
-                        # Keep current_type
-                        pass
-                    elif is_generic(current_type) and not is_generic(old_type):
-                        normalized["alarm_type"] = old_type
-                    
-                    # 3. Merge picture info: prefer non-empty URLs, prefer True local_pic
-                    if not normalized["alarm_pic_url"] and old_event.get("alarm_pic_url"):
-                        normalized["alarm_pic_url"] = old_event["alarm_pic_url"]
-                    if not normalized["local_pic"] and old_event.get("local_pic"):
-                        normalized["local_pic"] = old_event.get("local_pic", False)
-                    
-                    # Keep the original ID if we matched by (time, type)
-                    if ev_id != old_event["alarm_id"]:
-                        logger.debug("Merging duplicate event %s with existing %s (matched by time/type)", 
-                                    ev_id, old_event["alarm_id"])
-                        normalized["alarm_id"] = old_event["alarm_id"]
-                    
-                    self.events[match_idx].update(normalized)
+                    # Merge flags
+                    if normalized["is_push"]: old["is_push"] = True
+                    if normalized["alarm_pic_url"]: old["alarm_pic_url"] = normalized["alarm_pic_url"]
                 else:
                     self.events.append(normalized)
-                    # Update maps for next iterations in the same batch
-                    idx = len(self.events) - 1
-                    existing_ids[ev_id] = idx
-                    existing_keys[(ev_time, ev_type)] = idx
 
-            # Sort by time descending
+            # Sort and Prune
             self.events.sort(key=lambda x: x["alarm_time"], reverse=True)
             self.events = self.events[:self.max_size]
+            
+            # Global status update for sidebar
+            if self.events:
+                global _last_alarm_type, _last_alarm_time, _last_doorbell_time
+                latest = self.events[0]
+                _last_alarm_type = latest["alarm_type"]
+                _last_alarm_time = latest["alarm_time"]
+                for e in self.events:
+                    if e["alarm_type"] == "Doorbell":
+                        _last_doorbell_time = e["alarm_time"]
+                        break
             
             # Prune old images from disk
             self._prune_disk()
             
         if download_images:
-            # Download images in background for events that don't have local_pic
             threading.Thread(target=self._process_images, daemon=True, name="event-image-processor").start()
 
     def _prune_disk(self):
@@ -842,8 +805,11 @@ def api_status():
     status = dict(_last_status)
     status.pop("raw", None)  # Don't expose raw internal data
     status["last_snapshot"] = _last_snapshot_time.isoformat() if _last_snapshot_time else None
-    status["timestamp"] = status["last_snapshot"] # for frontend compatibility
+    status["timestamp"] = status["last_snapshot"]
     status["snapshot_interval_s"] = SNAPSHOT_INTERVAL
+    status["last_alarm_type"] = _last_alarm_type
+    status["last_alarm_time"] = _last_alarm_time
+    status["last_doorbell_time"] = _last_doorbell_time
     return jsonify(status)
 
 

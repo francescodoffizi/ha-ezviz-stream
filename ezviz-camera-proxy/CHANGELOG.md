@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.2] — 2026-04-25
+
+### Fixed
+- **Deduplicazione**: Migliorata logica di unione eventi fuzzy (10s) per evitare doppioni tra Push e Polling cloud.
+- **Stato**: Ripristinata la visualizzazione di "Ultima suonata" e "Ultimo evento" nella sidebar.
+- **Playback**: Aggiunto tasto "Riproduci Loop" nella modale evento per visione MJPEG ricostruita.
+
 ## [1.6.1] — 2026-04-25
 
 ### Fixed
