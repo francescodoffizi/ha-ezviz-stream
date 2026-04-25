@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.6] — 2026-04-25
+
+### Changed
+- **Dashboard Modal**: Replaced event thumbnail links with an in-page modal/lightbox. This prevents 401 errors when opening images, as it keeps the user within the authenticated Home Assistant Ingress session.
+- **Aggressive Deduplication**: Refined `EventStore` to merge generic event codes (like `10120`) with specific detection events (Face/Human) when they occur at the same timestamp.
+
+### Security
+- **Cloud Privacy**: Confirmed that the proxy does not access any cloud video recording or live streaming APIs. It only uses thumbnails and status data.
+
+---
+
+## [1.4.5] — 2026-04-25
+
+### Fixed
+- **Image Decryption**: Implemented automatic decryption for event thumbnails using the user-provided `ezviz_encryption_key`.
+- **Event Field Mappings**: Fixed `timeStr`, `pic`, and `title` extraction from the unified message API to ensure accurate event data.
+- **Background Workers**: Fixed a critical bug where snapshot polling and MQTT listener threads were not being started on boot.
+
+### Added
+- **Encryption Configuration**: Added `ezviz_encryption_key` option to the add-on configuration.
+
+---
+
 ## [1.4.4] — 2026-04-25
 
 ### Added

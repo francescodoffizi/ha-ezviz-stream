@@ -152,24 +152,28 @@ class EventStore:
                              normalized["alarm_time"] = old_event["alarm_time"]
                     
                     # 2. Prefer specific type names over generic ones or codes
-                    # Prefer "Face" or "Person" or "Doorbell" over generic "AI Human Detection" or "Event"
-                    better_types = ["face", "person", "doorbell", "call", "appeared"]
-                    current_is_better = any(bt in ev_type.lower() for bt in better_types)
-                    old_is_better = any(bt in old_event["alarm_type"].lower() for bt in better_types)
+                    generic_codes = ["10120", "12663", "event", "alarm"]
+                    is_generic = lambda t: str(t).lower() in generic_codes or str(t).isdigit()
                     
-                    if old_is_better and not current_is_better:
-                        normalized["alarm_type"] = old_event["alarm_type"]
-                    elif not old_is_better and current_is_better:
-                        # Current is better, keep it
-                        pass
-                    elif str(old_event["alarm_type"]).lower() not in ["event", "10120", "12663"] and \
-                        str(ev_type).lower() in ["event", "10120", "12663"]:
-                        normalized["alarm_type"] = old_event["alarm_type"]
+                    current_type = ev_type
+                    old_type = old_event["alarm_type"]
+                    
+                    better_types = ["face", "person", "doorbell", "call", "appeared", "human"]
+                    current_is_better = any(bt in current_type.lower() for bt in better_types)
+                    old_is_better = any(bt in old_type.lower() for bt in better_types)
 
+                    if old_is_better and not current_is_better:
+                        normalized["alarm_type"] = old_type
+                    elif not old_is_better and current_is_better:
+                        # Keep current_type
+                        pass
+                    elif is_generic(current_type) and not is_generic(old_type):
+                        normalized["alarm_type"] = old_type
+                    
                     # 3. Merge picture info: prefer non-empty URLs, prefer True local_pic
                     if not normalized["alarm_pic_url"] and old_event.get("alarm_pic_url"):
                         normalized["alarm_pic_url"] = old_event["alarm_pic_url"]
-                    if not normalized["local_pic"]:
+                    if not normalized["local_pic"] and old_event.get("local_pic"):
                         normalized["local_pic"] = old_event.get("local_pic", False)
                     
                     # Keep the original ID if we matched by (time, type)

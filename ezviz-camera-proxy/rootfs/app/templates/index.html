@@ -105,6 +105,34 @@
     .toast.show { opacity: 1; }
     .toast.success { border-color: var(--ha-success); color: var(--ha-success); }
     .toast.error   { border-color: var(--ha-danger);  color: var(--ha-danger); }
+    
+    /* Modal styles */
+    #image-modal {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.85);
+      display: none;
+      align-items: center; justify-content: center;
+      z-index: 10000;
+      backdrop-filter: blur(4px);
+      padding: 20px;
+    }
+    #image-modal.show { display: flex; }
+    #modal-img {
+      max-width: 95%; max-height: 90%;
+      border-radius: 8px;
+      box-shadow: 0 0 40px rgba(0,0,0,0.5);
+      border: 1px solid var(--ha-border);
+    }
+    #modal-close {
+      position: absolute; top: 20px; right: 20px;
+      background: var(--ha-card-bg);
+      border: 1px solid var(--ha-border);
+      color: #fff; border-radius: 50%;
+      width: 40px; height: 40px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+    }
+    #modal-close:hover { background: var(--ha-border); }
   </style>
 </head>
 <body class="min-h-screen p-4">
@@ -297,7 +325,7 @@
             <div class="flex items-center gap-3">
               {% set img_url = ingress_url('/api/events/image/' ~ event.alarm_id) if event.local_pic else event.alarm_pic_url %}
               {% if img_url %}
-              <div class="w-12 h-12 bg-gray-800 rounded overflow-hidden flex-shrink-0 cursor-pointer" onclick="window.open('{{ img_url }}', '_blank')">
+              <div class="w-12 h-12 bg-gray-800 rounded overflow-hidden flex-shrink-0 cursor-pointer" onclick="showImageModal('{{ img_url }}')">
                 <img src="{{ img_url }}" alt="Event" class="w-full h-full object-cover" 
                      onerror="this.parentElement.style.display='none'">
               </div>
@@ -327,15 +355,15 @@
               {% endif %}
               
               {% if img_url %}
-              <a href="{{ img_url }}" target="_blank"
+              <button onclick="showImageModal('{{ img_url }}')"
                  class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1" 
-                 style="background:var(--ha-accent); color:white; border-radius:4px; text-decoration:none;">
+                 style="background:var(--ha-accent); color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;">
                 <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
                 View
-              </a>
+              </button>
               {% endif %}
             </div>
           </div>
@@ -347,6 +375,16 @@
       </div>
     </div>
 
+  </div>
+
+  <!-- Image Modal -->
+  <div id="image-modal" onclick="hideImageModal()">
+    <div id="modal-close" onclick="hideImageModal()">
+      <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    </div>
+    <img id="modal-img" src="" alt="Event Detail" onclick="event.stopPropagation()">
   </div>
 
   <!-- Footer -->
@@ -592,7 +630,7 @@
             html += `<div class="event-row py-3 flex items-center justify-between text-sm">
               <div class="flex items-center gap-3">
                 ${imgUrl ? `
-                  <div class="w-12 h-12 bg-gray-800 rounded overflow-hidden flex-shrink-0 cursor-pointer" onclick="window.open('${imgUrl}', '_blank')">
+                  <div class="w-12 h-12 bg-gray-800 rounded overflow-hidden flex-shrink-0 cursor-pointer" onclick="showImageModal('${imgUrl}')">
                     <img src="${imgUrl}" alt="Event" class="w-full h-full object-cover" onerror="this.parentElement.style.display='none'">
                   </div>
                 ` : `
@@ -611,15 +649,15 @@
               <div class="flex items-center gap-2">
                 ${localBadge}
                 ${imgUrl ? `
-                  <a href="${imgUrl}" target="_blank" 
+                  <button onclick="showImageModal('${imgUrl}')" 
                      class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1" 
-                     style="background:var(--ha-accent); color:white; border-radius:4px; text-decoration:none;">
+                     style="background:var(--ha-accent); color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;">
                     <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                       <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                     </svg>
                     View
-                  </a>` : ''}
+                  </button>` : ''}
               </div>
             </div>`;
           }
@@ -627,6 +665,23 @@
           container.innerHTML = html;
         })
         .catch(() => {});
+    }
+
+    // -----------------------------------------------------------------------
+    // Modal
+    // -----------------------------------------------------------------------
+    function showImageModal(src) {
+        if (!src) return;
+        const modal = document.getElementById('image-modal');
+        const modalImg = document.getElementById('modal-img');
+        modalImg.src = src;
+        modal.classList.add('show');
+        document.body.style.overflow = 'hidden'; // Stop scrolling
+    }
+    function hideImageModal() {
+        const modal = document.getElementById('image-modal');
+        modal.classList.remove('show');
+        document.body.style.overflow = '';
     }
 
     // -----------------------------------------------------------------------
@@ -640,6 +695,11 @@
       // Poll status every 30s, events every 60s
       setInterval(pollStatus, 30000);
       setInterval(pollEvents, 60000);
+
+      // ESC key to close modal
+      document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') hideImageModal();
+      });
     });
   </script>
 </body>
