@@ -33,6 +33,7 @@ from flask import (
     url_for,
 )
 import paho.mqtt.publish as publish
+import paho.mqtt.client as mqtt
 
 from ezviz_client import EzvizClient, EzvizClientError, EzvizAuthError, EzvizDeviceError
 
@@ -473,6 +474,69 @@ def _send_mqtt_discovery():
         except Exception as e:
             logger.error("Failed to send MQTT discovery for %s: %s", s_type, e)
 
+    # Add refresh button
+    btn_topic = f"homeassistant/button/ezviz_{CAMERA_SERIAL}_refresh/config"
+    btn_payload = {
+        "name": "Refresh Snapshot",
+        "command_topic": f"homeassistant/button/ezviz_{CAMERA_SERIAL}_refresh/set",
+        "unique_id": f"ezviz_{CAMERA_SERIAL}_refresh",
+        "device": device_info,
+        "icon": "mdi:refresh",
+        "payload_press": "PRESS",
+        "entity_category": "config"
+    }
+    try:
+        publish.single(btn_topic, json.dumps(btn_payload), hostname=mqtt_host, port=mqtt_port, auth=auth, retain=True)
+        logger.info("⚡ MQTT Discovery: Sent config for refresh button")
+    except Exception as e:
+        logger.error("Failed to send MQTT discovery for refresh button: %s", e)
+
+
+def _local_mqtt_worker():
+    """Background thread: listen for commands from local Home Assistant MQTT."""
+    mqtt_host = os.environ.get("MQTT_HOST")
+    if not mqtt_host:
+        logger.warning("⚠️ MQTT_HOST not set, local MQTT listener disabled")
+        return
+
+    mqtt_port = int(os.environ.get("MQTT_PORT", 1883))
+    mqtt_user = os.environ.get("MQTT_USER", "")
+    mqtt_pass = os.environ.get("MQTT_PASSWORD", "")
+    
+    # Use a specific client ID to avoid collisions
+    client_id = f"ezviz_proxy_{CAMERA_SERIAL}_listener"
+    client = mqtt.Client(client_id=client_id, clean_session=True)
+    
+    if mqtt_user:
+        client.username_pw_set(mqtt_user, mqtt_pass)
+
+    command_topic = f"homeassistant/button/ezviz_{CAMERA_SERIAL}_refresh/set"
+
+    def on_connect(client, userdata, flags, rc):
+        if rc == 0:
+            logger.info("⚡ Connected to local MQTT broker, subscribing to %s", command_topic)
+            client.subscribe(command_topic)
+        else:
+            logger.error("Failed to connect to local MQTT broker, rc=%s", rc)
+
+    def on_message(client, userdata, msg):
+        payload = msg.payload.decode().upper()
+        logger.info("⚡ Received MQTT command on %s: %s", msg.topic, payload)
+        if msg.topic == command_topic and payload == "PRESS":
+            logger.info("⚡ Refresh command received via MQTT. Triggering snapshot...")
+            # Use the existing event-driven fetch helper
+            threading.Thread(target=_fetch_snapshot_on_event, daemon=True, name="mqtt-refresh-worker").start()
+
+    client.on_connect = on_connect
+    client.on_message = on_message
+
+    logger.info("Starting local MQTT listener for commands...")
+    try:
+        client.connect(mqtt_host, mqtt_port, 60)
+        client.loop_forever()
+    except Exception as e:
+        logger.error("Local MQTT listener error: %s", e)
+
 
 def _snapshot_worker():
     """Background thread: fetch a new snapshot every SNAPSHOT_INTERVAL seconds."""
@@ -576,9 +640,12 @@ def _snapshot_worker():
             time.sleep(sleep_time)
 
 
-# Start background thread
+# Start background threads
 _worker_thread = threading.Thread(target=_snapshot_worker, daemon=True, name="snapshot-worker")
 _worker_thread.start()
+
+_mqtt_listener_thread = threading.Thread(target=_local_mqtt_worker, daemon=True, name="local-mqtt-listener")
+_mqtt_listener_thread.start()
 
 # ---------------------------------------------------------------------------
 # Helper: get current snapshot bytes

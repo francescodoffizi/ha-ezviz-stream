@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.4] — 2026-04-25
+
+### Added
+
+- **HA Refresh Button**: Exposed the snapshot refresh function to Home Assistant as an MQTT button. This allows triggering a cloud snapshot fetch via automations or the HA UI using the new `button.ezviz_<serial>_refresh_snapshot` entity.
+- **Local MQTT Command Listener**: Implemented a background listener for local MQTT commands to handle the refresh trigger with low latency.
+
+---
+
 ## [1.4.3] — 2026-04-23
 
 ### Fixed
