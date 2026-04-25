@@ -566,7 +566,15 @@
       newImg.id = 'stream-img';
       newImg.className = oldImg.className;
       newImg.alt = "Camera snapshot or history";
-      newImg.onerror = oldImg.onerror;
+      newImg.onerror = function() {
+          console.error('⚡ MJPEG Load Error:', newImg.src);
+          // If we were in history mode and it failed, maybe the stream is broken
+          if (historyMode) {
+              console.warn('History playback failed, showing fallback.');
+          }
+          this.onerror = null; // prevents infinite loop
+          this.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23222'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%23666' font-family='sans-serif' font-size='10'%3ENessuna immagine disponibile%3C/text%3E%3C/svg%3E";
+      };
       
       if (historyMode) {
           btn.innerHTML = t('Stop History');
@@ -607,8 +615,12 @@
             container.innerHTML = `<p class="text-sm" style="color:var(--ha-danger)"><b>${t('Error')}:</b> ${data.error}</p>`;
           } else {
             dot.className = 'status-dot ' + (data.online ? 'online' : 'offline');
-            label.textContent = data.online ? t('Online') : t('Offline');
             label.style.color = data.online ? 'var(--ha-success)' : 'var(--ha-danger)';
+            
+            if (data.timestamp) {
+                const d = new Date(data.timestamp + 'Z');
+                document.getElementById('last-updated').textContent = d.toLocaleString();
+            }
 
             // Rebuild the status list to ensure all fields are updated and "Loading..." is removed
             let html = '<div class="space-y-3 text-sm">';

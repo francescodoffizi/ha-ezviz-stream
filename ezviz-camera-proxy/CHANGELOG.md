@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.1] — 2026-04-25
+
+### Fixed
+- **MJPEG Stream**: Rifatto il generatore MJPEG per una migliore compatibilità con i browser e HA Ingress.
+- **Playback Storia**: Corretto il loop di riproduzione della cronologia eventi.
+- **Dashboard**: Risolto il bug che non aggiornava il timestamp dell'ultimo update nella dashboard.
+
 ## [1.6.0] — 2026-04-25
 
 ### Added

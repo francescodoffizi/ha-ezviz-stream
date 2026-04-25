@@ -741,6 +741,7 @@ app.jinja_env.globals["snapshot_interval"] = SNAPSHOT_INTERVAL
 @app.route("/")
 def index():
     """Main dashboard."""
+    logger.info("⚡ Request: / (Dashboard), Ingress=%s", INGRESS_ENTRY)
     events = _event_store.get_all()
     return render_template(
         "index.html",
@@ -758,6 +759,7 @@ def index():
 @app.route("/api/snapshot")
 def api_snapshot():
     """Return the current snapshot JPEG."""
+    logger.info("⚡ Request: /api/snapshot")
     img = _get_current_snapshot_bytes()
     if not img:
         img = _placeholder_image()
@@ -849,6 +851,7 @@ def api_status():
 @app.route("/api/events/list")
 def api_events():
     """Return recent alarm events as JSON."""
+    logger.info("⚡ Request: /api/events")
     events = _event_store.get_all()
     return jsonify({
         "events": events,
@@ -869,65 +872,71 @@ def api_event_image(alarm_id):
 
 @app.route("/api/stream")
 def api_stream():
-    """
-    MJPEG stream: continuously push snapshots as MJPEG frames.
-    If ?history=true is passed, loops through recent event snapshots.
-    Otherwise, pushes the latest live snapshot.
-    """
+    """MJPEG stream: continuously push snapshots as MJPEG frames."""
     is_history = request.args.get("history", "false").lower() == "true"
+    logger.info("⚡ MJPEG Request: history=%s, Ingress=%s", is_history, INGRESS_ENTRY)
 
     def generate():
-        frame_delay = 1.0 # 1 FPS
-        boundary = b"frame--ezviz"
-        logger.info("MJPEG Stream started (history=%s)", is_history)
+        frame_delay = 1.0 
+        boundary = b"ezviz_boundary"
+        logger.info("⚡ MJPEG Generator starting (history=%s)", is_history)
         
-        while True:
-            if is_history:
-                images = _event_store.get_image_list()
-                if not images:
-                    logger.debug("History stream: no local images found, showing placeholder")
-                    img = _placeholder_image()
+        try:
+            # Start the multipart response
+            yield b"--" + boundary + b"\r\n"
+            
+            while True:
+                if is_history:
+                    images = _event_store.get_image_list()
+                    if not images:
+                        logger.warning("⚡ History mode: NO IMAGES FOUND on disk")
+                        img = _placeholder_image()
+                        yield (
+                            b"Content-Type: image/jpeg\r\n\r\n" +
+                            img + b"\r\n" +
+                            b"--" + boundary + b"\r\n"
+                        )
+                        time.sleep(2)
+                    else:
+                        logger.info("⚡ History mode: playing %d images", len(images))
+                        for img_path in images:
+                            try:
+                                img = img_path.read_bytes()
+                                if not img: continue
+                                yield (
+                                    b"Content-Type: image/jpeg\r\n" +
+                                    f"Content-Length: {len(img)}\r\n\r\n".encode() +
+                                    img + b"\r\n" +
+                                    b"--" + boundary + b"\r\n"
+                                )
+                                time.sleep(frame_delay)
+                            except Exception as e:
+                                logger.error("Failed to read history image %s: %s", img_path, e)
+                        # After one full loop, pause
+                        time.sleep(1.0)
+                else:
+                    img = _get_current_snapshot_bytes()
+                    if not img:
+                        img = _placeholder_image()
+                    
                     yield (
-                        b"--" + boundary + b"\r\n" +
                         b"Content-Type: image/jpeg\r\n" +
                         f"Content-Length: {len(img)}\r\n\r\n".encode() +
-                        img + b"\r\n"
+                        img + b"\r\n" +
+                        b"--" + boundary + b"\r\n"
                     )
-                    time.sleep(2)
-                else:
-                    logger.info("History stream: playing %d images", len(images))
-                    for img_path in images:
-                        try:
-                            img = img_path.read_bytes()
-                            yield (
-                                b"--" + boundary + b"\r\n" +
-                                b"Content-Type: image/jpeg\r\n" +
-                                f"Content-Length: {len(img)}\r\n\r\n".encode() +
-                                img + b"\r\n"
-                            )
-                            time.sleep(frame_delay)
-                        except Exception as e:
-                            logger.error("Failed to read history image %s: %s", img_path, e)
-                            continue
-                    time.sleep(1.0)
-            else:
-                img = _get_current_snapshot_bytes()
-                if not img:
-                    img = _placeholder_image()
-                yield (
-                    b"--" + boundary + b"\r\n" +
-                    b"Content-Type: image/jpeg\r\n" +
-                    f"Content-Length: {len(img)}\r\n\r\n".encode() +
-                    img + b"\r\n"
-                )
-                time.sleep(frame_delay)
+                    time.sleep(frame_delay)
+                
+        except Exception as ge:
+            logger.error("⚡ MJPEG Generator crashed: %s", ge)
 
     return Response(
         generate(),
-        mimetype="multipart/x-mixed-replace; boundary=frame--ezviz",
+        mimetype="multipart/x-mixed-replace; boundary=ezviz_boundary",
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
         },
     )
 
