@@ -472,9 +472,9 @@ def _send_mqtt_discovery():
     }
 
     sensors = [
-        ("motion", "Motion", "motion"),
-        ("doorbell", "Doorbell", "occupancy"),
-        ("alarm", "Alarm", "problem")
+        ("motion", "Movimento", "motion"),
+        ("doorbell", "Campanello", "occupancy"),
+        ("alarm", "Allarme", "problem")
     ]
 
     for s_type, s_name, s_class in sensors:
@@ -498,7 +498,7 @@ def _send_mqtt_discovery():
     # Add refresh button
     btn_topic = f"homeassistant/button/ezviz_{CAMERA_SERIAL}_refresh/config"
     btn_payload = {
-        "name": "Refresh Snapshot",
+        "name": "Aggiorna Snapshot",
         "command_topic": f"homeassistant/button/ezviz_{CAMERA_SERIAL}_refresh/set",
         "unique_id": f"ezviz_{CAMERA_SERIAL}_refresh",
         "device": device_info,

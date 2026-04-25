@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ezviz Camera — {{ camera_serial or 'Not Configured' }}</title>
+  <title>Ezviz Camera — {{ camera_serial or 'Non Configurata' }}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     /* HA Ingress dark theme */
@@ -145,27 +145,27 @@
           d="M15 10l4.553-2.069A1 1 0 0121 8.882v6.236a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
       </svg>
       <div>
-        <h1 class="text-xl font-bold leading-tight" style="color:var(--ha-text)">Ezviz HP2 Dashboard</h1>
+        <h1 class="text-xl font-bold leading-tight" style="color:var(--ha-text)">Dashboard Ezviz HP2</h1>
         <p class="text-xs" style="color:var(--ha-text-muted)">
-          Serial: <span class="font-mono">{{ camera_serial or '—' }}</span>
+          Seriale: <span class="font-mono">{{ camera_serial or '—' }}</span>
         </p>
       </div>
     </div>
     <div id="connection-badge" class="flex items-center gap-2 text-sm">
       <span class="status-dot unknown" id="online-dot"></span>
-      <span id="online-label" style="color:var(--ha-text-muted)">Connecting…</span>
+      <span id="online-label" style="color:var(--ha-text-muted)">Connessione in corso…</span>
     </div>
   </div>
 
   {% if snapshot_error %}
   <div class="card p-4 mb-4 border-red-800 text-sm" style="color:var(--ha-danger)">
-    <strong>Snapshot error:</strong> {{ snapshot_error }}
+    <strong>Errore snapshot:</strong> {{ snapshot_error }}
   </div>
   {% endif %}
 
   {% if status_error %}
   <div class="card p-4 mb-4 border-yellow-700 text-sm" style="color:var(--ha-warning)">
-    <strong>Status error:</strong> {{ status_error }}
+    <strong>Errore stato:</strong> {{ status_error }}
   </div>
   {% endif %}
 
@@ -174,24 +174,24 @@
     <!-- Camera Feed (left/top, spans 2 cols on large screens) -->
     <div class="card p-4 lg:col-span-2">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="font-semibold text-sm uppercase tracking-wide" style="color:var(--ha-text-muted)">Live View</h2>
+        <h2 class="font-semibold text-sm uppercase tracking-wide" style="color:var(--ha-text-muted)">Vista Live</h2>
         <div class="flex items-center gap-3">
           <span class="text-xs" style="color:var(--ha-text-muted)">
-            Auto-refresh: <span class="font-mono" id="countdown">{{ snapshot_interval }}</span>s
+            Aggiorno in: <span class="font-mono" id="countdown">{{ snapshot_interval }}</span>s
           </span>
           <button class="btn-primary flex items-center gap-2" id="refresh-btn" onclick="manualRefresh()">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round"
                 d="M4 4v5h5M20 20v-5h-5M4 9a8 8 0 0114.93-2.93M20 15a8 8 0 01-14.93 2.93"/>
             </svg>
-            Refresh
+            Aggiorna
           </button>
           <button class="btn-primary flex items-center gap-2" id="history-btn" onclick="toggleHistory()" style="background:var(--ha-warning)">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
               <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            Play History
+            Riproduci Cronologia
           </button>
         </div>
       </div>
@@ -202,7 +202,7 @@
           id="stream-img"
           src="{{ ingress_url('/api/snapshot') }}"
           alt="Camera snapshot"
-          onerror="console.error('Image/Stream load error on:', this.src); this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22640%22 height=%22360%22><rect width=%22640%22 height=%22360%22 fill=%22%230a0a0c%22/><text x=%22320%22 y=%22180%22 text-anchor=%22middle%22 fill=%22%239ca3af%22 font-size=%2218%22>No image available</text></svg>';"
+          onerror="console.error('Errore caricamento immagine/stream su:', this.src); this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22640%22 height=%22360%22><rect width=%22640%22 height=%22360%22 fill=%22%230a0a0c%22/><text x=%22320%22 y=%22180%22 text-anchor=%22middle%22 fill=%22%239ca3af%22 font-size=%2218%22>Nessuna immagine disponibile</text></svg>';"
         />
         <div id="refresh-overlay"
           class="absolute inset-0 flex items-center justify-center rounded-lg"
@@ -212,13 +212,13 @@
       </div>
 
       <p class="text-xs mt-2" style="color:var(--ha-text-muted)">
-        Last updated: <span id="last-updated">{{ last_snapshot_time or 'Never' }}</span>
+        Ultimo aggiornamento: <span id="last-updated">{{ last_snapshot_time or 'Mai' }}</span>
         &nbsp;·&nbsp;
         <span id="mode-badge" class="badge badge-other text-[10px]">Live</span>
         &nbsp;·&nbsp;
         <a href="javascript:void(0)" onclick="showImageModal(url('/api/stream'))" 
            class="underline" style="color:var(--ha-accent)">
-          Open MJPEG Stream ↗
+          Apri Stream MJPEG ↗
         </a>
       </p>
     </div>
@@ -228,7 +228,7 @@
 
       <!-- Camera Status -->
       <div class="card p-4">
-        <h2 class="font-semibold text-sm uppercase tracking-wide mb-3" style="color:var(--ha-text-muted)">Status</h2>
+        <h2 class="font-semibold text-sm uppercase tracking-wide mb-3" style="color:var(--ha-text-muted)">Stato</h2>
         <div id="status-container">
           {% if status %}
           <div class="space-y-3 text-sm">
@@ -236,7 +236,7 @@
               <span style="color:var(--ha-text-muted)">Online</span>
               <span>
                 {% if status.online %}
-                  <span class="status-dot online mr-1"></span> Yes
+                  <span class="status-dot online mr-1"></span> Sì
                 {% else %}
                   <span class="status-dot offline mr-1"></span> No
                 {% endif %}
@@ -245,7 +245,7 @@
             {% if status.battery_level is not none %}
             <div>
               <div class="flex justify-between mb-1">
-                <span style="color:var(--ha-text-muted)">Battery</span>
+                <span style="color:var(--ha-text-muted)">Batteria</span>
                 <span id="battery-value">{{ status.battery_level }}%</span>
               </div>
               <progress id="battery-progress" value="{{ status.battery_level }}" max="100"></progress>
@@ -253,25 +253,25 @@
             {% endif %}
             {% if status.local_ip %}
             <div class="flex justify-between">
-              <span style="color:var(--ha-text-muted)">Local IP</span>
+              <span style="color:var(--ha-text-muted)">IP Locale</span>
               <span class="font-mono text-xs">{{ status.local_ip }}</span>
             </div>
             {% endif %}
             {% if status.is_sleeping is not none %}
             <div class="flex justify-between">
-              <span style="color:var(--ha-text-muted)">Sleeping</span>
-              <span>{{ 'Yes' if status.is_sleeping else 'No' }}</span>
+              <span style="color:var(--ha-text-muted)">In sospensione</span>
+              <span>{{ 'Sì' if status.is_sleeping else 'No' }}</span>
             </div>
             {% endif %}
             {% if status.last_alarm_type %}
             <div class="flex justify-between">
-              <span style="color:var(--ha-text-muted)">Last Event</span>
+              <span style="color:var(--ha-text-muted)">Ultimo Evento</span>
               <span>{{ status.last_alarm_type }}</span>
             </div>
             {% endif %}
             {% if status.device_sub_category %}
             <div class="flex justify-between">
-              <span style="color:var(--ha-text-muted)">Model</span>
+              <span style="color:var(--ha-text-muted)">Modello</span>
               <span>{{ status.device_sub_category }}</span>
             </div>
             {% endif %}
@@ -283,16 +283,16 @@
             {% endif %}
           </div>
           {% else %}
-          <p class="text-sm" style="color:var(--ha-text-muted)">Loading status…</p>
+          <p class="text-sm" style="color:var(--ha-text-muted)">Caricamento stato…</p>
           {% endif %}
         </div>
       </div>
 
       <!-- HA Integration tip -->
       <div class="card p-4">
-        <h2 class="font-semibold text-sm uppercase tracking-wide mb-2" style="color:var(--ha-text-muted)">HA Camera URL</h2>
+        <h2 class="font-semibold text-sm uppercase tracking-wide mb-2" style="color:var(--ha-text-muted)">URL Telecamera HA</h2>
         <p class="text-xs mb-2" style="color:var(--ha-text-muted)">
-          Use in <em>Generic Camera</em> integration:
+          Usa nell'integrazione <em>Generic Camera</em>:
         </p>
         <code class="text-xs break-all block p-2 rounded"
               style="background:rgba(255,255,255,0.05); color:var(--ha-accent); font-family:monospace;">
@@ -312,7 +312,7 @@
     <!-- Events / Alarms (full width) -->
     <div class="card p-4 lg:col-span-3">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="font-semibold text-sm uppercase tracking-wide" style="color:var(--ha-text-muted)">Recent Events</h2>
+        <h2 class="font-semibold text-sm uppercase tracking-wide" style="color:var(--ha-text-muted)">Eventi Recenti</h2>
         <a href="{{ ingress_url('/api/events') }}" class="text-xs underline" style="color:var(--ha-accent)">
           JSON ↗
         </a>
@@ -342,7 +342,7 @@
                   {%- if 'motion' in (event.alarm_type or '') | lower %} badge-motion
                   {%- elif 'doorbell' in (event.alarm_type or '') | lower or 'bell' in (event.alarm_type or '') | lower %} badge-doorbell
                   {%- else %} badge-other{%- endif %}">
-                  {{ event.alarm_type or 'Event' }}
+                  {{ event.alarm_type or 'Evento' }}
                 </span>
                 <span style="color:var(--ha-text)">
                   {{ event.alarm_time or '—' }}
@@ -362,7 +362,7 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
-                View
+                Vedi
               </button>
               {% endif %}
             </div>
@@ -370,7 +370,7 @@
           {% endfor %}
         </div>
         {% else %}
-        <p class="text-sm" style="color:var(--ha-text-muted)">No events yet. Events appear here when motion or doorbell is detected.</p>
+        <p class="text-sm" style="color:var(--ha-text-muted)">Nessun evento ancora. Gli eventi appaiono qui quando viene rilevato un movimento o il campanello.</p>
         {% endif %}
       </div>
     </div>
@@ -384,16 +384,16 @@
         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
       </svg>
     </div>
-    <img id="modal-img" src="" alt="Event Detail" onclick="event.stopPropagation()">
+    <img id="modal-img" src="" alt="Dettaglio Evento" onclick="event.stopPropagation()">
   </div>
 
   <!-- Footer -->
   <div class="mt-6 text-center text-xs" style="color:var(--ha-text-muted)">
-    Ezviz Camera Proxy v1.4.3
+    Ezviz Camera Proxy v1.5.0
     &nbsp;·&nbsp;
-    <a href="{{ ingress_url('/api/health') }}" class="underline" style="color:var(--ha-accent)">Health</a>
+    <a href="{{ ingress_url('/api/health') }}" class="underline" style="color:var(--ha-accent)">Salute</a>
     &nbsp;·&nbsp;
-    <a href="{{ ingress_url('/api/status') }}" class="underline" style="color:var(--ha-accent)">Status JSON</a>
+    <a href="{{ ingress_url('/api/status') }}" class="underline" style="color:var(--ha-accent)">Stato JSON</a>
     &nbsp;·&nbsp;
     <a href="https://github.com/gilbert82/ha-ezviz-stream" target="_blank"
        class="underline" style="color:var(--ha-accent)">GitHub ↗</a>
@@ -403,6 +403,50 @@
   <div class="toast" id="toast"></div>
 
   <script>
+    // -----------------------------------------------------------------------
+    // Translations
+    // -----------------------------------------------------------------------
+    const TRANSLATIONS = {
+        'Motion Detection': 'Rilevamento Movimento',
+        'Person Detection': 'Rilevamento Persone',
+        'Face Detection': 'Rilevamento Volti',
+        'Doorbell Call': 'Chiamata Campanello',
+        'Intrusion Detection': 'Rilevamento Intrusione',
+        'Alarm': 'Allarme',
+        'Record': 'Registrazione',
+        'Snapshot': 'Istantanea',
+        'Event': 'Evento',
+        'Online': 'Online',
+        'Offline': 'Offline',
+        'Yes': 'Sì',
+        'No': 'No',
+        'Battery': 'Batteria',
+        'Local IP': 'IP Locale',
+        'WAN IP': 'IP Esterno',
+        'Sleeping': 'In sospensione',
+        'Last Event': 'Ultimo Evento',
+        'Model': 'Modello',
+        'Firmware': 'Firmware',
+        'Connecting…': 'Connessione in corso…',
+        'Error': 'Errore',
+        'Snapshot refreshed': 'Snapshot aggiornato',
+        'Refresh failed: ': 'Aggiornamento fallito: ',
+        'Network error: ': 'Errore di rete: ',
+        'Playing snapshot history...': 'Riproduzione cronologia snapshot...',
+        'Returned to Live view': 'Tornato alla vista Live',
+        'History Playback': 'Riproduzione Cronologia',
+        'Live': 'Live',
+        'Stop History': '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" /></svg> Ferma Cronologia',
+        'Play History': '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> Riproduci Cronologia',
+        'Never': 'Mai',
+        'Locale': 'Locale',
+        'View': 'Vedi'
+    };
+
+    function t(text) {
+        return TRANSLATIONS[text] || text;
+    }
+
     // -----------------------------------------------------------------------
     // Configuration (injected from Flask)
     // -----------------------------------------------------------------------
@@ -418,10 +462,10 @@
     // Toast
     // -----------------------------------------------------------------------
     function showToast(msg, type='success') {
-      const t = document.getElementById('toast');
-      t.textContent = msg;
-      t.className = 'toast ' + type + ' show';
-      setTimeout(() => { t.classList.remove('show'); }, 3000);
+      const tElement = document.getElementById('toast');
+      tElement.textContent = t(msg);
+      tElement.className = 'toast ' + type + ' show';
+      setTimeout(() => { tElement.classList.remove('show'); }, 3000);
     }
 
     // -----------------------------------------------------------------------
@@ -435,7 +479,7 @@
     function updateCountdown() {
       if (SNAPSHOT_INTERVAL <= 0 || historyMode) {
         if (SNAPSHOT_INTERVAL <= 0) {
-          document.getElementById('countdown').textContent = 'Event-Only';
+          document.getElementById('countdown').textContent = 'Solo Eventi';
         }
         return;
       }
@@ -451,7 +495,7 @@
     function startCountdown() {
       clearInterval(countdownTimer);
       if (SNAPSHOT_INTERVAL <= 0) {
-        document.getElementById('countdown').textContent = 'Event-Only';
+        document.getElementById('countdown').textContent = 'Solo Eventi';
         return;
       }
       countdown = {{ snapshot_interval or 0 }};
@@ -475,7 +519,10 @@
           if (data.success) {
             // Cache-bust the image src
             img.src = url('/api/snapshot') + '?t=' + Date.now();
-            document.getElementById('last-updated').textContent = new Date(data.timestamp + 'Z').toLocaleString();
+            if (data.timestamp) {
+                const d = new Date(data.timestamp + 'Z');
+                document.getElementById('last-updated').textContent = d.toLocaleString();
+            }
             if (manual) showToast('Snapshot refreshed');
           } else {
             if (manual) showToast('Refresh failed: ' + data.error, 'error');
@@ -522,25 +569,17 @@
       newImg.onerror = oldImg.onerror;
       
       if (historyMode) {
-          btn.innerHTML = `
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
-            </svg> Stop History`;
+          btn.innerHTML = t('Stop History');
           btn.style.background = 'var(--ha-danger)';
-          badge.textContent = 'History Playback';
+          badge.textContent = t('History Playback');
           badge.className = 'badge badge-motion text-[10px]';
           
           newImg.src = url('/api/stream?history=true');
           showToast('Playing snapshot history...');
       } else {
-          btn.innerHTML = `
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-              <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg> Play History`;
+          btn.innerHTML = t('Play History');
           btn.style.background = 'var(--ha-warning)';
-          badge.textContent = 'Live';
+          badge.textContent = t('Live');
           badge.className = 'badge badge-other text-[10px]';
           
           newImg.src = url('/api/snapshot?t=' + Date.now());
@@ -563,19 +602,19 @@
 
           if (data.error) {
             dot.className   = 'status-dot unknown';
-            label.textContent = 'Error';
+            label.textContent = t('Error');
             label.style.color = 'var(--ha-danger)';
-            container.innerHTML = `<p class="text-sm" style="color:var(--ha-danger)"><b>Error:</b> ${data.error}</p>`;
+            container.innerHTML = `<p class="text-sm" style="color:var(--ha-danger)"><b>${t('Error')}:</b> ${data.error}</p>`;
           } else {
             dot.className = 'status-dot ' + (data.online ? 'online' : 'offline');
-            label.textContent = data.online ? 'Online' : 'Offline';
+            label.textContent = data.online ? t('Online') : t('Offline');
             label.style.color = data.online ? 'var(--ha-success)' : 'var(--ha-danger)';
 
             // Rebuild the status list to ensure all fields are updated and "Loading..." is removed
             let html = '<div class="space-y-3 text-sm">';
             
             const rows = [
-                ['Online', data.online ? '<span class="status-dot online mr-1"></span> Yes' : '<span class="status-dot offline mr-1"></span> No'],
+                ['Online', data.online ? `<span class="status-dot online mr-1"></span> ${t('Yes')}` : `<span class="status-dot offline mr-1"></span> ${t('No')}`],
                 ['Battery', data.battery_level !== undefined ? `
                     <div>
                         <div class="flex justify-between mb-1">
@@ -585,8 +624,8 @@
                     </div>` : null],
                 ['Local IP', data.local_ip ? `<span class="font-mono text-xs">${data.local_ip}</span>` : null],
                 ['WAN IP', data.wan_ip ? `<span class="font-mono text-xs">${data.wan_ip}</span>` : null],
-                ['Sleeping', data.is_sleeping !== undefined ? (data.is_sleeping ? 'Yes' : 'No') : null],
-                ['Last Event', data.last_alarm_type || null],
+                ['Sleeping', data.is_sleeping !== undefined ? (data.is_sleeping ? t('Yes') : t('No')) : null],
+                ['Last Event', t(data.last_alarm_type) || null],
                 ['Model', data.device_sub_category || null],
                 ['Firmware', data.version ? `<span class="font-mono text-xs">${data.version}</span>` : null],
             ];
@@ -595,7 +634,7 @@
                 if (val !== null) {
                     html += `
                     <div class="flex justify-between">
-                        <span style="color:var(--ha-text-muted)">${name}</span>
+                        <span style="color:var(--ha-text-muted)">${t(name)}</span>
                         <span>${val}</span>
                     </div>`;
                 }
@@ -640,7 +679,7 @@
             if (typeStr.includes('doorbell') || typeStr.includes('bell')) badgeClass = 'badge-doorbell';
             
             const imgUrl = e.local_pic ? url('/api/events/image/' + e.alarm_id) : (e.alarm_pic_url || '');
-            const localBadge = e.local_pic ? '<span class="badge badge-other !bg-green-900/20 !text-green-400 text-[9px] mr-1">Local</span>' : '';
+            const localBadge = e.local_pic ? `<span class="badge badge-other !bg-green-900/20 !text-green-400 text-[9px] mr-1">${t('Locale')}</span>` : '';
             
             html += `<div class="event-row py-3 flex items-center justify-between text-sm">
               <div class="flex items-center gap-3">
@@ -657,7 +696,7 @@
                 `}
                 
                 <div class="flex flex-col">
-                  <span class="badge w-fit mb-1 ${badgeClass}">${e.alarm_type || 'Event'}</span>
+                  <span class="badge w-fit mb-1 ${badgeClass}">${t(e.alarm_type) || t('Event')}</span>
                   <span style="color:var(--ha-text)">${e.alarm_time || '—'}</span>
                 </div>
               </div>
@@ -671,7 +710,7 @@
                       <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                       <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                     </svg>
-                    View
+                    ${t('View')}
                   </button>` : ''}
               </div>
             </div>`;

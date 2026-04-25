@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.0] — 2026-04-25
+
+### Added
+- **Localizzazione**: Localizzazione completa in italiano (Dashboard, entità MQTT e messaggi di stato).
+
+### Fixed
+- **Frontend**: Migliorata la gestione degli errori e la visualizzazione delle date.
+- **MQTT**: Nomi delle entità tradotti in italiano per una migliore integrazione con Home Assistant.
+
 ## [1.5.0] — 2026-04-25
 
 ### Fixed
