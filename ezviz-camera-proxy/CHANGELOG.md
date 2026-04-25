@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.7] — 2026-04-25
+
+### Fixed
+- **Play History**: Fixed a dashboard bug where the snapshot countdown was not paused during history playback, causing the browser to overwrite the MJPEG stream with a static snapshot URL.
+- **MJPEG Compatibility**: Optimized the stream generator to omit `Content-Length` headers and improved frame boundary formatting for better compatibility with different browsers.
+- **Enhanced Logging**: Added more detailed logs for image retrieval and stream generation to aid troubleshooting.
+
+---
+
 ## [1.4.6] — 2026-04-25
 
 ### Changed

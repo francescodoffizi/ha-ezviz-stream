@@ -433,8 +433,10 @@
     let refreshing = false;
 
     function updateCountdown() {
-      if (SNAPSHOT_INTERVAL <= 0) {
-        document.getElementById('countdown').textContent = 'Event-Only';
+      if (SNAPSHOT_INTERVAL <= 0 || historyMode) {
+        if (SNAPSHOT_INTERVAL <= 0) {
+          document.getElementById('countdown').textContent = 'Event-Only';
+        }
         return;
       }
       document.getElementById('countdown').textContent = countdown;

@@ -876,34 +876,35 @@ def api_stream():
 
     def generate():
         frame_delay = 1.0 # 1 FPS
+        logger.info("MJPEG Stream started (history=%s)", is_history)
         while True:
             if is_history:
                 images = _event_store.get_image_list()
                 if not images:
-                    # Fallback to placeholder if no history
+                    logger.debug("History stream: no local images found, showing placeholder")
                     img = _placeholder_image()
                     yield (
                         b"--frame\r\n"
-                        b"Content-Type: image/jpeg\r\n"
-                        b"Content-Length: " + str(len(img)).encode() + b"\r\n\r\n"
+                        b"Content-Type: image/jpeg\r\n\r\n"
                         + img
                         + b"\r\n"
                     )
                     time.sleep(2)
                 else:
+                    logger.info("History stream: playing %d images", len(images))
                     # Loop through historical images
                     for img_path in images:
                         try:
                             img = img_path.read_bytes()
                             yield (
                                 b"--frame\r\n"
-                                b"Content-Type: image/jpeg\r\n"
-                                b"Content-Length: " + str(len(img)).encode() + b"\r\n\r\n"
+                                b"Content-Type: image/jpeg\r\n\r\n"
                                 + img
                                 + b"\r\n"
                             )
                             time.sleep(frame_delay)
-                        except Exception:
+                        except Exception as e:
+                            logger.error("Failed to read history image %s: %s", img_path, e)
                             continue
                     # End of history loop: pause for 1s before restarting
                     time.sleep(1.0)
@@ -914,8 +915,7 @@ def api_stream():
                     img = _placeholder_image()
                 yield (
                     b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n"
-                    b"Content-Length: " + str(len(img)).encode() + b"\r\n\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n"
                     + img
                     + b"\r\n"
                 )
