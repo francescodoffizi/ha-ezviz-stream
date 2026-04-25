@@ -351,20 +351,29 @@ def _on_ezviz_push_message(msg):
         
         # Determine event type
         alert_code = int(ext.get("alert_type_code", 0))
-        # Doorbell codes: 10000, 10006, 10022 etc.
+        # Doorbell codes: 10000 (Generic), 10006 (Ring), 10022 (Call), 10054/10055 (HP2 specific)
         is_doorbell = alert_code in [10000, 10001, 10002, 10006, 10022, 10054, 10055]
+        # Alarm/Problem: tamper (10005), signal loss (10101), error (10115) etc.
+        # Exclude motion (1, 10120, etc.) and doorbell
+        is_alarm = alert_code in [10005, 10101, 10115] or "Tamper" in msg.get("alert", "")
+        
         event_type = "doorbell" if is_doorbell else "motion"
         
-        logger.info("⚡ Push Event: code=%s, type=%s, msg=%s", alert_code, event_type, msg.get("alert", "N/A"))
+        logger.info("⚡ Push Event: code=%s, type=%s, msg=%s, is_alarm=%s", alert_code, event_type, msg.get("alert", "N/A"), is_alarm)
         
         main_topic = f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_{event_type}/state"
         global_topic = f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_alarm/state"
         user_topic = f"homeassistant/camera/ezviz/{CAMERA_SERIAL}/{event_type}"
         
         try:
-            # Publish 'ON' and Attributes to all relevant topics
-            for t in [main_topic, user_topic, global_topic]:
+            # Publish 'ON' to specific sensor
+            for t in [main_topic, user_topic]:
                 publish.single(t, "ON", hostname=mqtt_host, port=mqtt_port, auth=auth)
+            
+            # ONLY trigger global Alarm topic if it's a real problem event
+            if is_alarm:
+                logger.info("⚡ TRIGGERING GLOBAL ALARM for code %s", alert_code)
+                publish.single(global_topic, "ON", hostname=mqtt_host, port=mqtt_port, auth=auth)
             
             # Attributes topic - Flatten 'ext' into top-level
             attr_data = msg.copy()
@@ -383,8 +392,10 @@ def _on_ezviz_push_message(msg):
             def _reset_mqtt():
                 time.sleep(5)
                 try:
-                    for t in [main_topic, user_topic, global_topic]:
+                    for t in [main_topic, user_topic]:
                         publish.single(t, "OFF", hostname=mqtt_host, port=mqtt_port, auth=auth)
+                    if is_alarm:
+                        publish.single(global_topic, "OFF", hostname=mqtt_host, port=mqtt_port, auth=auth)
                 except: pass
             threading.Thread(target=_reset_mqtt, daemon=True).start()
 
@@ -436,7 +447,7 @@ def _send_mqtt_discovery():
 
     sensors = [
         ("motion", "Movimento", "motion"),
-        ("doorbell", "Campanello", "occupancy"),
+        ("doorbell", "Campanello", "doorbell"),
         ("alarm", "Allarme", "problem")
     ]
 
