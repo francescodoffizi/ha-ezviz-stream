@@ -260,6 +260,7 @@ class EventStore:
                     path = EVENT_SNAPSHOT_PATH / filename
                     if path.exists():
                         paths.append(path)
+            logger.info("History image list requested: found %d local images on disk", len(paths))
             return paths
 
 # ---------------------------------------------------------------------------

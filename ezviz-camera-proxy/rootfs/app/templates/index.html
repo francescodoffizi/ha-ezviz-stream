@@ -216,7 +216,7 @@
         &nbsp;·&nbsp;
         <span id="mode-badge" class="badge badge-other text-[10px]">Live</span>
         &nbsp;·&nbsp;
-        <a href="{{ ingress_url('/api/stream') }}" target="_blank"
+        <a href="javascript:void(0)" onclick="showImageModal(url('/api/stream'))" 
            class="underline" style="color:var(--ha-accent)">
           Open MJPEG Stream ↗
         </a>
@@ -506,12 +506,19 @@
     let historyMode = false;
     
     function toggleHistory() {
-      const img = document.getElementById('stream-img');
+      const container = document.getElementById('stream-img').parentElement;
+      const oldImg = document.getElementById('stream-img');
       const btn = document.getElementById('history-btn');
       const badge = document.getElementById('mode-badge');
-      const refreshBtn = document.getElementById('refresh-btn');
       
       historyMode = !historyMode;
+      
+      // Force re-create image element to reset MJPEG stream state in browser
+      const newImg = document.createElement('img');
+      newImg.id = 'stream-img';
+      newImg.className = oldImg.className;
+      newImg.alt = "Camera snapshot or history";
+      newImg.onerror = oldImg.onerror;
       
       if (historyMode) {
           btn.innerHTML = `
@@ -523,9 +530,7 @@
           badge.textContent = 'History Playback';
           badge.className = 'badge badge-motion text-[10px]';
           
-          // Switch image source to history stream
-          img.src = url('/api/stream?history=true&t=' + Date.now());
-          
+          newImg.src = url('/api/stream?history=true&t=' + Date.now());
           showToast('Playing snapshot history...');
       } else {
           btn.innerHTML = `
@@ -537,11 +542,11 @@
           badge.textContent = 'Live';
           badge.className = 'badge badge-other text-[10px]';
           
-          // Switch back to live snapshot
-          img.src = url('/api/snapshot?t=' + Date.now());
-          
+          newImg.src = url('/api/snapshot?t=' + Date.now());
           showToast('Returned to Live view');
       }
+      
+      container.replaceChild(newImg, oldImg);
     }
 
     // -----------------------------------------------------------------------

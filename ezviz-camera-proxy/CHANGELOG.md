@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.8] — 2026-04-25
+
+### Fixed
+- **401 Error on MJPEG**: Replaced external "Open MJPEG Stream" link with an in-page modal to maintain Home Assistant Ingress authentication.
+- **Play History**: Improved reliability by forcing a re-render of the stream element when toggling history mode.
+- **Backend Logging**: Added monitoring to `get_image_list` to track historical image availability on disk.
+
+---
+
 ## [1.4.7] — 2026-04-25
 
 ### Fixed
