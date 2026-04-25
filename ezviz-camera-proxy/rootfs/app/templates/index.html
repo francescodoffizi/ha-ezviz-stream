@@ -530,7 +530,7 @@
           badge.textContent = 'History Playback';
           badge.className = 'badge badge-motion text-[10px]';
           
-          newImg.src = url('/api/stream?history=true&t=' + Date.now());
+          newImg.src = url('/api/stream?history=true');
           showToast('Playing snapshot history...');
       } else {
           btn.innerHTML = `
@@ -687,6 +687,8 @@
     }
     function hideImageModal() {
         const modal = document.getElementById('image-modal');
+        const modalImg = document.getElementById('modal-img');
+        modalImg.src = ''; // Stop stream download
         modal.classList.remove('show');
         document.body.style.overflow = '';
     }

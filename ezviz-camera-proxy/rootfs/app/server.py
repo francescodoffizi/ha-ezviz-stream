@@ -877,7 +877,9 @@ def api_stream():
 
     def generate():
         frame_delay = 1.0 # 1 FPS
+        boundary = b"--frame--ezviz\r\n"
         logger.info("MJPEG Stream started (history=%s)", is_history)
+        
         while True:
             if is_history:
                 images = _event_store.get_image_list()
@@ -885,46 +887,43 @@ def api_stream():
                     logger.debug("History stream: no local images found, showing placeholder")
                     img = _placeholder_image()
                     yield (
-                        b"--frame\r\n"
-                        b"Content-Type: image/jpeg\r\n\r\n"
-                        + img
-                        + b"\r\n"
+                        boundary +
+                        b"Content-Type: image/jpeg\r\n" +
+                        f"Content-Length: {len(img)}\r\n\r\n".encode() +
+                        img + b"\r\n"
                     )
                     time.sleep(2)
                 else:
                     logger.info("History stream: playing %d images", len(images))
-                    # Loop through historical images
                     for img_path in images:
                         try:
                             img = img_path.read_bytes()
                             yield (
-                                b"--frame\r\n"
-                                b"Content-Type: image/jpeg\r\n\r\n"
-                                + img
-                                + b"\r\n"
+                                boundary +
+                                b"Content-Type: image/jpeg\r\n" +
+                                f"Content-Length: {len(img)}\r\n\r\n".encode() +
+                                img + b"\r\n"
                             )
                             time.sleep(frame_delay)
                         except Exception as e:
                             logger.error("Failed to read history image %s: %s", img_path, e)
                             continue
-                    # End of history loop: pause for 1s before restarting
                     time.sleep(1.0)
             else:
-                # Live mode
                 img = _get_current_snapshot_bytes()
                 if not img:
                     img = _placeholder_image()
                 yield (
-                    b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n\r\n"
-                    + img
-                    + b"\r\n"
+                    boundary +
+                    b"Content-Type: image/jpeg\r\n" +
+                    f"Content-Length: {len(img)}\r\n\r\n".encode() +
+                    img + b"\r\n"
                 )
                 time.sleep(frame_delay)
 
     return Response(
         generate(),
-        mimetype="multipart/x-mixed-replace; boundary=frame",
+        mimetype="multipart/x-mixed-replace; boundary=frame--ezviz",
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",

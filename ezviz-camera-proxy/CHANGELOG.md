@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.9] — 2026-04-25
+
+### Fixed
+- **History Playback**: Resolved rendering issues (black screen) by switching to a more standard MJPEG format with unique boundaries and explicit `Content-Length` headers.
+- **MJPEG Stability**: Removed redundant cache-busting parameters from MJPEG stream URLs which could interfere with long-lived MJPEG connections.
+- **Stream Termination**: Improved client-side stream termination when closing modals to save bandwidth and server resources.
+
+---
+
 ## [1.4.8] — 2026-04-25
 
 ### Fixed
