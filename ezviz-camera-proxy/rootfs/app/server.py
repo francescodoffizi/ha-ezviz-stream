@@ -55,6 +55,7 @@ EZVIZ_PASSWORD = os.environ.get("EZVIZ_PASSWORD", "")
 EZVIZ_REGION = os.environ.get("EZVIZ_REGION", "apiieu.ezvizlife.com")
 CAMERA_SERIAL = os.environ.get("CAMERA_SERIAL", "")
 CAMERA_PASSWORD = os.environ.get("CAMERA_PASSWORD", "")
+EZVIZ_ENCRYPTION_KEY = os.environ.get("EZVIZ_ENCRYPTION_KEY", "")
 SNAPSHOT_INTERVAL = int(os.environ.get("SNAPSHOT_INTERVAL", "30"))
 ENABLE_MQTT_EVENTS = os.environ.get("ENABLE_MQTT_EVENTS", "true").lower() == "true"
 
@@ -116,20 +117,24 @@ class EventStore:
                 match_idx = existing_ids.get(ev_id)
                 
                 if match_idx is None:
-                    # Check if another event has exact same time and type (likely same event, different ID)
+                    # Check if another event has same time and type (already existed)
                     match_idx = existing_keys.get((ev_time, ev_type))
-                    
+                
                 if match_idx is None:
-                    # Optional: 1-second fuzzy match for time to handle slight cloud vs push drift
-                    # We check -1s and +1s for the same type
+                    # IMPROVED DEDUPLICATION: Check if there's an event within 5s for the same camera
+                    # regardless of type (accrued many duplicates like 'Face Detection' + 'Human Detection')
                     try:
                         dt = datetime.strptime(ev_time, "%Y-%m-%d %H:%M:%S")
-                        for offset in [-1, 1]:
-                            fuzzy_time = (dt + timedelta(seconds=offset)).strftime("%Y-%m-%d %H:%M:%S")
-                            match_idx = existing_keys.get((fuzzy_time, ev_type))
-                            if match_idx is not None: break
+                        for e_idx, e in enumerate(self.events):
+                            if e.get("device_serial", "") == event.get("device_serial", ""):
+                                try:
+                                    e_dt = datetime.strptime(e["alarm_time"], "%Y-%m-%d %H:%M:%S")
+                                    if abs((dt - e_dt).total_seconds()) <= 5:
+                                        match_idx = e_idx
+                                        break
+                                except: continue
                     except: pass
-
+                    
                 if match_idx is not None:
                     # Update existing record
                     old_event = self.events[match_idx]
@@ -147,8 +152,18 @@ class EventStore:
                              normalized["alarm_time"] = old_event["alarm_time"]
                     
                     # 2. Prefer specific type names over generic ones or codes
-                    if str(old_event["alarm_type"]).lower() not in ["event", "10120", "12663"] and \
-                       str(ev_type).lower() in ["event", "10120", "12663"]:
+                    # Prefer "Face" or "Person" or "Doorbell" over generic "AI Human Detection" or "Event"
+                    better_types = ["face", "person", "doorbell", "call", "appeared"]
+                    current_is_better = any(bt in ev_type.lower() for bt in better_types)
+                    old_is_better = any(bt in old_event["alarm_type"].lower() for bt in better_types)
+                    
+                    if old_is_better and not current_is_better:
+                        normalized["alarm_type"] = old_event["alarm_type"]
+                    elif not old_is_better and current_is_better:
+                        # Current is better, keep it
+                        pass
+                    elif str(old_event["alarm_type"]).lower() not in ["event", "10120", "12663"] and \
+                        str(ev_type).lower() in ["event", "10120", "12663"]:
                         normalized["alarm_type"] = old_event["alarm_type"]
 
                     # 3. Merge picture info: prefer non-empty URLs, prefer True local_pic
@@ -285,6 +300,7 @@ def get_client() -> EzvizClient:
                 region=EZVIZ_REGION,
                 camera_serial=CAMERA_SERIAL,
                 camera_password=CAMERA_PASSWORD,
+                encryption_key=EZVIZ_ENCRYPTION_KEY
             )
         return _client
 
@@ -971,6 +987,10 @@ if __name__ == "__main__":
         logger.error("EZVIZ_USERNAME and EZVIZ_PASSWORD must be set in Add-on config!")
     if not CAMERA_SERIAL:
         logger.error("CAMERA_SERIAL must be set in Add-on config!")
+
+    # Start background threads
+    threading.Thread(target=_snapshot_worker, daemon=True, name="snapshot-worker").start()
+    threading.Thread(target=_local_mqtt_worker, daemon=True, name="local-mqtt-listener").start()
 
     app.run(
         host="0.0.0.0",

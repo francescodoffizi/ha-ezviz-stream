@@ -11,6 +11,7 @@ export EZVIZ_PASSWORD="$(bashio::config 'ezviz_password')"
 export EZVIZ_REGION="$(bashio::config 'ezviz_region')"
 export CAMERA_SERIAL="$(bashio::config 'camera_serial')"
 export CAMERA_PASSWORD="$(bashio::config 'camera_password')"
+export EZVIZ_ENCRYPTION_KEY="$(bashio::config 'ezviz_encryption_key')"
 export SNAPSHOT_INTERVAL="$(bashio::config 'snapshot_interval')"
 export ENABLE_MQTT_EVENTS="$(bashio::config 'enable_mqtt_events')"
 

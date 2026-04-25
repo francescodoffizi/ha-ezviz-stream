@@ -56,12 +56,14 @@ class EzvizClient:
         region: str = "apiieu.ezvizlife.com",
         camera_serial: str = "",
         camera_password: str = "",
+        encryption_key: str = "",
     ):
         self.username = username
         self.password = password
         self.region = region
         self.camera_serial = camera_serial
         self.camera_password = camera_password
+        self.encryption_key = encryption_key
 
         self._client = None  # pyezvizapi.EzvizClient instance
         self._lock = threading.Lock()
@@ -70,6 +72,7 @@ class EzvizClient:
         # Cached data from last successful pagelist fetch
         self._cached_device_data: dict = {}
         self._cached_status: dict = {}
+        self._logged_structure = False
 
     # ------------------------------------------------------------------
     # Authentication
@@ -535,9 +538,40 @@ class EzvizClient:
                 logger.info("Image download: %d bytes, type=%s, jpeg=%s, png=%s",
                             content_len, content_type, is_jpeg, is_png)
                 if is_jpeg or is_png or "image" in content_type.lower():
+                    # Check if it might be an encrypted HIK picture in a JPEG container
+                    # or if the header is present and we have a key
+                    if b"hikencodepicture" in resp.content:
+                        logger.info("Encrypted HIK header detected in image")
+                        if self.encryption_key:
+                            try:
+                                from pyezvizapi.utils import decrypt_image
+                                decoded = decrypt_image(resp.content, self.encryption_key)
+                                if decoded.startswith(b"\xff\xd8"):
+                                    logger.info("Successfully decrypted image (%d bytes)", len(decoded))
+                                    return decoded
+                                else:
+                                    logger.warning("Decrypted data is not a JPEG. Header: %s", decoded[:20].hex())
+                            except Exception as de:
+                                logger.error("Image decryption failed: %s", de)
+                        else:
+                            logger.warning("Image is encrypted but no encryption_key provided in config")
                     return resp.content
                 else:
                     # Might be encrypted or HTML error — log first bytes
+                    if b"hikencodepicture" in resp.content:
+                        logger.info("Encrypted HIK header detected (without image content-type)")
+                        if self.encryption_key:
+                            try:
+                                from pyezvizapi.utils import decrypt_image
+                                decoded = decrypt_image(resp.content, self.encryption_key)
+                                if decoded.startswith(b"\xff\xd8"):
+                                    logger.info("Successfully decrypted image from raw stream (%d bytes)", len(decoded))
+                                    return decoded
+                            except Exception as de:
+                                logger.error("Image decryption failed (raw): %s", de)
+                        else:
+                             logger.warning("Raw stream is encrypted but no encryption_key provided")
+                    
                     logger.warning("Downloaded data is not a recognized image format. "
                                    "First 50 bytes: %s, Content-Type: %s",
                                    resp.content[:50], content_type)
@@ -592,13 +626,17 @@ class EzvizClient:
                             result.append(
                                 {
                                     "alarm_id": msg.get("msgId", ""),
-                                    "alarm_type": msg.get("sampleName")
+                                    "alarm_type": msg.get("title")
+                                    or msg.get("sampleName")
                                     or msg.get("alarmType", ""),
-                                    "alarm_time": msg.get("msgTimeStr")
+                                    "alarm_time": msg.get("timeStr")
+                                    or msg.get("msgTimeStr")
                                     or msg.get("alarmStartTimeStr")
+                                    or (datetime.fromtimestamp(int(msg["time"])/1000).strftime("%Y-%m-%d %H:%M:%S") if msg.get("time") else "")
                                     or (datetime.fromtimestamp(int(msg["msgTime"])/1000).strftime("%Y-%m-%d %H:%M:%S") if msg.get("msgTime") else "")
                                     or (datetime.fromtimestamp(int(msg["alarmStartTime"])/1000).strftime("%Y-%m-%d %H:%M:%S") if msg.get("alarmStartTime") else ""),
-                                    "alarm_pic_url": msg.get("picUrl")
+                                    "alarm_pic_url": msg.get("pic")
+                                    or msg.get("picUrl")
                                     or msg.get("alarmPicUrl", ""),
                                     "device_serial": msg.get("deviceSerial", ""),
                                 }
