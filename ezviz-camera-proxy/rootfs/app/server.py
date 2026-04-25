@@ -840,6 +840,7 @@ def api_status():
     status = dict(_last_status)
     status.pop("raw", None)  # Don't expose raw internal data
     status["last_snapshot"] = _last_snapshot_time.isoformat() if _last_snapshot_time else None
+    status["timestamp"] = status["last_snapshot"] # for frontend compatibility
     status["snapshot_interval_s"] = SNAPSHOT_INTERVAL
     return jsonify(status)
 
@@ -877,7 +878,7 @@ def api_stream():
 
     def generate():
         frame_delay = 1.0 # 1 FPS
-        boundary = b"--frame--ezviz\r\n"
+        boundary = b"frame--ezviz"
         logger.info("MJPEG Stream started (history=%s)", is_history)
         
         while True:
@@ -887,7 +888,7 @@ def api_stream():
                     logger.debug("History stream: no local images found, showing placeholder")
                     img = _placeholder_image()
                     yield (
-                        boundary +
+                        b"--" + boundary + b"\r\n" +
                         b"Content-Type: image/jpeg\r\n" +
                         f"Content-Length: {len(img)}\r\n\r\n".encode() +
                         img + b"\r\n"
@@ -899,7 +900,7 @@ def api_stream():
                         try:
                             img = img_path.read_bytes()
                             yield (
-                                boundary +
+                                b"--" + boundary + b"\r\n" +
                                 b"Content-Type: image/jpeg\r\n" +
                                 f"Content-Length: {len(img)}\r\n\r\n".encode() +
                                 img + b"\r\n"
@@ -914,7 +915,7 @@ def api_stream():
                 if not img:
                     img = _placeholder_image()
                 yield (
-                    boundary +
+                    b"--" + boundary + b"\r\n" +
                     b"Content-Type: image/jpeg\r\n" +
                     f"Content-Length: {len(img)}\r\n\r\n".encode() +
                     img + b"\r\n"

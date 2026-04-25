@@ -202,7 +202,7 @@
           id="stream-img"
           src="{{ ingress_url('/api/snapshot') }}"
           alt="Camera snapshot"
-          onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22640%22 height=%22360%22><rect width=%22640%22 height=%22360%22 fill=%22%230a0a0c%22/><text x=%22320%22 y=%22180%22 text-anchor=%22middle%22 fill=%22%239ca3af%22 font-size=%2218%22>No image available</text></svg>'"
+          onerror="console.error('Image/Stream load error on:', this.src); this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22640%22 height=%22360%22><rect width=%22640%22 height=%22360%22 fill=%22%230a0a0c%22/><text x=%22320%22 y=%22180%22 text-anchor=%22middle%22 fill=%22%239ca3af%22 font-size=%2218%22>No image available</text></svg>';"
         />
         <div id="refresh-overlay"
           class="absolute inset-0 flex items-center justify-center rounded-lg"
@@ -482,6 +482,7 @@
           }
         })
         .catch(e => {
+          console.error("Refresh error:", e);
           if (manual) showToast('Network error: ' + e.message, 'error');
         })
         .finally(() => {
@@ -602,6 +603,13 @@
             html += '</div>';
             container.innerHTML = html;
 
+            if (data.timestamp) {
+                const d = new Date(data.timestamp);
+                if (!isNaN(d.getTime())) {
+                    document.getElementById('last-updated').textContent = d.toLocaleString();
+                }
+            }
+
             // Auto-refresh snapshot if server has a newer one (e.g. from a real-time event)
             if (!historyMode && data.last_snapshot && data.last_snapshot !== lastSnapshotTime) {
                 if (lastSnapshotTime !== null) {
@@ -612,7 +620,7 @@
             }
           }
         })
-        .catch(() => {});
+        .catch(e => console.error("Status poll failed:", e));
     }
 
     // -----------------------------------------------------------------------
@@ -671,7 +679,7 @@
           html += '</div>';
           container.innerHTML = html;
         })
-        .catch(() => {});
+        .catch(e => console.error("Events poll failed:", e));
     }
 
     // -----------------------------------------------------------------------

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.5.0] — 2026-04-25
+
+### Fixed
+- **Stability**: Refactored MJPEG stream generation to use standard boundary formatting for better browser compatibility.
+- **Frontend**: Added robust error catching and logging to all API polls.
+- **Frontend**: Fixed "Invalid Date" display for last snapshot time.
+- **Authentication**: Improved modal logic to ensure consistent token handling during history playback.
+
 ## [1.4.9] — 2026-04-25
 
 ### Fixed
