@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.5] — 2026-05-09
+
+### Fixed
+- **Thread Loop**: Rimosso l'avvio duplicato globale dei thread in background (`_snapshot_worker` e `_local_mqtt_worker`). I thread vengono ora avviati solo all'interno del blocco `__main__`, risolvendo il problema delle continue disconnessioni/riconnessioni MQTT (collisione Client ID) e dei login doppi alle API di Ezviz.
+
+---
+
 ## [1.6.4] — 2026-05-09
 
 ### Fixed
