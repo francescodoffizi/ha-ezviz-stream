@@ -640,12 +640,7 @@ def _snapshot_worker():
             time.sleep(sleep_time)
 
 
-# Start background threads
-_worker_thread = threading.Thread(target=_snapshot_worker, daemon=True, name="snapshot-worker")
-_worker_thread.start()
 
-_mqtt_listener_thread = threading.Thread(target=_local_mqtt_worker, daemon=True, name="local-mqtt-listener")
-_mqtt_listener_thread.start()
 
 # ---------------------------------------------------------------------------
 # Helper: get current snapshot bytes
