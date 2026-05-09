@@ -380,6 +380,11 @@ def _on_ezviz_push_message(msg):
             if "ext" in attr_data and isinstance(attr_data["ext"], dict):
                 attr_data.update(attr_data.pop("ext"))
             
+            # Shorten URLs to prevent Home Assistant >255 char state errors
+            for k, v in list(attr_data.items()):
+                if isinstance(v, str) and v.startswith("http") and len(v) > 200:
+                    attr_data[k] = ingress_url(f"/api/events/image/{ev_id}")
+            
             attr_topic = main_topic.replace("/state", "/attributes")
             publish.single(attr_topic, json.dumps(attr_data), hostname=mqtt_host, port=mqtt_port, auth=auth)
             
@@ -821,6 +826,16 @@ def api_status():
     status["last_alarm_type"] = _last_alarm_type
     status["last_alarm_time"] = _last_alarm_time
     status["last_doorbell_time"] = _last_doorbell_time
+    
+    # Shorten last_alarm_pic to prevent HA >255 char state limit errors
+    pic_url = status.get("last_alarm_pic", "")
+    if pic_url and len(pic_url) > 200:
+        events = _event_store.get_all()
+        if events:
+            status["last_alarm_pic"] = ingress_url(f"/api/events/image/{events[0]['alarm_id']}")
+        else:
+            status["last_alarm_pic"] = ingress_url("/api/snapshot") # Safe fallback
+
     return jsonify(status)
 
 
@@ -830,9 +845,19 @@ def api_events():
     """Return recent alarm events as JSON."""
     logger.info("⚡ Request: /api/events")
     events = _event_store.get_all()
+    
+    # Shorten URLs to prevent HA >255 char state errors if mapped
+    clean_events = []
+    for ev in events:
+        clean_ev = dict(ev)
+        pic_url = clean_ev.get("alarm_pic_url", "")
+        if pic_url and len(pic_url) > 200:
+            clean_ev["alarm_pic_url"] = ingress_url(f"/api/events/image/{ev['alarm_id']}")
+        clean_events.append(clean_ev)
+        
     return jsonify({
-        "events": events,
-        "count": len(events),
+        "events": clean_events,
+        "count": len(clean_events),
         "camera_serial": CAMERA_SERIAL,
     })
 

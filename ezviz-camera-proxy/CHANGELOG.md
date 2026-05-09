@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.4] — 2026-05-09
+
+### Fixed
+- **Home Assistant Limits**: Intercettati e accorciati gli URL delle immagini Cloud Ezviz (> 255 caratteri) nei payload MQTT e nelle risposte REST API (`/api/status`, `/api/events`). Gli URL puntano ora al proxy locale (es: `/api/events/image/<id>`), evitando crash di Home Assistant dovuti al limite stringente di 255 caratteri per lo stato dei sensori.
+
+---
+
 ## [1.6.2] — 2026-04-25
 
 ### Fixed
