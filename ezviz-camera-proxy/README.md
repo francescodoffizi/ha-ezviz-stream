@@ -1,89 +1,87 @@
-# Ezviz Camera Proxy — Home Assistant Add-on
+# Ezviz Camera Proxy — Add-on per Home Assistant
 
-[![GitHub Release](https://img.shields.io/github/v/release/g-stuecheli/ha-ezviz-stream)](https://github.com/g-stuecheli/ha-ezviz-stream/releases)
-[![License](https://img.shields.io/github/license/g-stuecheli/ha-ezviz-stream)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/v/release/francescodoffizi/ha-ezviz-stream)](https://github.com/francescodoffizi/ha-ezviz-stream/releases)
+[![License](https://img.shields.io/github/license/francescodoffizi/ha-ezviz-stream)](LICENSE)
 
-A Home Assistant Add-on that brings **Ezviz HP2 door viewer cameras** (and other Ezviz cameras
-without RTSP support) into your smart home by using the Ezviz Cloud API.
-
----
-
-## Why This Add-on?
-
-The **Ezviz CS-HP2** is a smart door viewer / peephole camera that:
-
-- ✅ Works great in the Ezviz app
-- ✅ Supports motion detection, doorbell events, 1080p video
-- ❌ Does **not** support RTSP
-- ❌ Does **not** support LAN Live View
-- ❌ Cannot be integrated with standard HA camera platforms
-
-This add-on solves that by acting as a local proxy between HA and the Ezviz Cloud API.
+Un Add-on per Home Assistant che integra i spioncini e le telecamere **Ezviz HP2** (e altre telecamere Ezviz senza supporto RTSP) nella tua domotica utilizzando l'API Ezviz Cloud.
 
 ---
 
-## Features
+## Perché questo Add-on?
 
-- 📸 **Snapshot polling** — Periodic cloud snapshots cached locally, served as JPEG
-- 📹 **MJPEG stream** — Simulated live view from cached snapshots (compatible with HA Generic Camera)
-- 🔋 **Battery & status** — Camera online status, battery level, WiFi signal via REST API
-- 🔔 **Alarm events** — Recent doorbell and motion events, with optional MQTT publishing
-- 🌐 **Web UI** — Built-in dashboard with HA Ingress support (sidebar panel)
-- 🔒 **Secure** — Credentials stored in HA add-on config, never logged
+Lo spioncino smart **Ezviz CS-HP2**:
+
+- ✅ Funziona benissimo con l'applicazione ufficiale Ezviz
+- ✅ Supporta il rilevamento di movimento, eventi campanello e video 1080p
+- ❌ **Non** supporta il protocollo RTSP
+- ❌ **Non** supporta la visualizzazione live in rete locale (LAN)
+- ❌ Non può essere integrato con le normali piattaforme telecamera di Home Assistant
+
+Questo add-on risolve il problema fungendo da proxy locale tra Home Assistant e l'API Ezviz Cloud.
 
 ---
 
-## Installation
+## Caratteristiche
 
-1. Add this repository to your HA Add-on Store:
+- 📸 **Snapshot polling** — Istantanee periodiche dal cloud salvate in locale e servite in formato JPEG.
+- 📹 **MJPEG stream** — Simulazione di un flusso video live basato sulle istantanee salvate (compatibile con la piattaforma Generic Camera di HA).
+- 🔋 **Batteria e stato** — Stato online, livello della batteria e potenza del segnale Wi-Fi esposti tramite REST API.
+- 🔔 **Eventi Allarme** — Notifiche in tempo reale di movimento e campanello, con supporto per l'invio su MQTT.
+- 🌐 **Web UI** — Dashboard integrata accessibile direttamente da Home Assistant Ingress (pannello laterale).
+- 🔒 **Sicurezza** — Le credenziali vengono salvate nella configurazione protetta dell'add-on di HA e mai registrate nei log.
+
+---
+
+## Installazione
+
+1. Aggiungi questo repository al tuo Add-on Store di Home Assistant:
    ```
-   https://github.com/g-stuecheli/ha-ezviz-stream
+   https://github.com/francescodoffizi/ha-ezviz-stream
    ```
-2. Install **Ezviz Camera Proxy**
-3. Configure with your Ezviz credentials and camera serial
-4. Start the add-on
+2. Installa **Ezviz Camera Proxy**
+3. Configura l'add-on con le tue credenziali Ezviz e il numero seriale della fotocamera
+4. Avvia l'add-on
 
 ---
 
-## Quick Start Configuration
+## Configurazione Rapida
 
 ```yaml
-ezviz_username: "your@email.com"
-ezviz_password: "your-password"
+ezviz_username: "latua@email.com"
+ezviz_password: "la-tua-password"
 ezviz_region: "apiieu.ezvizlife.com"
 camera_serial: "AB1234567"
-camera_password: "123456"
+camera_password: "codice-verifica-camera"
 snapshot_interval: 30
 enable_mqtt_events: true
 ```
 
 ---
 
-## Add as HA Camera Entity
+## Aggiungere come Entità Telecamera in HA
 
 ```yaml
 camera:
   - platform: generic
-    name: "HP2 Door Viewer"
+    name: "Spioncino HP2"
     still_image_url: "http://localhost:8099/api/snapshot"
     stream_source: "http://localhost:8099/api/stream"
 ```
 
 ---
 
-## Documentation
+## Documentazione
 
-See [DOCS.md](DOCS.md) for full configuration reference, HA integration examples,
-API documentation and troubleshooting.
+Consulta il file [DOCS.md](DOCS.md) per i dettagli sulla configurazione, esempi di integrazione con HA, documentazione delle API e risoluzione dei problemi.
 
 ---
 
-## Supported Architectures
+## Architetture Supportate
 
 `amd64` · `aarch64` · `armv7` · `armhf` · `i386`
 
 ---
 
-## License
+## Licenza
 
-MIT — see [LICENSE](../../LICENSE)
+MIT — vedi [LICENSE](../../LICENSE)

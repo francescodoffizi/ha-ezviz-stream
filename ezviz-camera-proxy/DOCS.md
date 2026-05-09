@@ -1,127 +1,123 @@
-# Ezviz Camera Proxy — Documentation
+# Ezviz Camera Proxy — Documentazione
 
-## What This Add-on Does
+## Cosa fa questo Add-on
 
-The **Ezviz Camera Proxy** add-on provides Home Assistant integration for Ezviz cameras that
-**do not support RTSP or LAN Live View**, most notably the
-[Ezviz CS-HP2 Door Viewer](https://www.ezviz.com/product/cs-hp2/7952).
+L'add-on **Ezviz Camera Proxy** fornisce l'integrazione con Home Assistant per le telecamere Ezviz che **non supportano RTSP o LAN Live View**, in particolare lo [Spioncino Ezviz CS-HP2](https://www.ezviz.com/product/cs-hp2/7952).
 
-Because the HP2 communicates exclusively via the Ezviz Cloud (P2P protocol), this add-on:
+Poiché l'HP2 comunica esclusivamente tramite il Cloud Ezviz (protocollo proprietario P2P), questo add-on:
 
-1. **Authenticates with the Ezviz Cloud API** using `pyezvizapi`
-2. **Periodically fetches snapshots** from the cloud and caches them locally
-3. **Exposes HTTP endpoints** for snapshot, MJPEG stream simulation, device status and alarm events
-4. **Provides a built-in Web UI** accessible via Home Assistant Ingress (sidebar panel)
-5. **Optionally publishes MQTT events** for doorbell presses and motion detection
+1. **Si autentica con l'API Ezviz Cloud** usando la libreria `pyezvizapi`.
+2. **Scarica periodicamente le istantanee (snapshot)** dal cloud e le salva localmente.
+3. **Espone endpoint HTTP** per ottenere l'istantanea JPEG, la simulazione del flusso MJPEG, lo stato del dispositivo e gli eventi di allarme.
+4. **Fornisce una Web UI integrata** accessibile tramite Home Assistant Ingress (pannello laterale).
+5. **Invia eventi MQTT** istantanei in caso di rilevamento di movimento o pressione del campanello.
 
 ---
 
-## Why This Approach?
+## Perché questo approccio?
 
-The HP2 has RTSP and LAN Live View deliberately disabled by Ezviz. Attempts to use standard
-RTSP addresses (`rtsp://admin:<pwd>@<ip>:554/...`) will fail. The only supported access path is:
+Ezviz ha deliberatamente disabilitato il supporto RTSP e LAN Live View sullo spioncino HP2. Qualsiasi tentativo di connettersi ad indirizzi RTSP locali (`rtsp://admin:<pwd>@<ip>:554/...`) fallirà. L'unico percorso di accesso supportato è:
 
-- **Ezviz mobile app** (uses proprietary P2P protocol)
-- **Ezviz Cloud API** (via `pyezvizapi` Python library or REST API)
-- **Ezviz Open Platform** (for developer HLS/RTMP streams, requires a paid developer account)
+- **App ufficiale Ezviz** (utilizza il protocollo proprietario P2P)
+- **API Cloud Ezviz** (tramite la libreria Python `pyezvizapi` o REST API)
+- **Ezviz Open Platform** (per flussi sviluppatori HLS/RTMP, richiede un account sviluppatore a pagamento)
 
-This add-on uses the Cloud API approach (pyezvizapi) which is free and works with any standard
-Ezviz account.
+Questo add-on utilizza l'approccio API Cloud (pyezvizapi), che è gratuito e funziona con qualsiasi account Ezviz standard.
 
 ---
 
-## Installation
+## Installazione
 
-### Step 1: Add Repository
+### Passaggio 1: Aggiungi il Repository
 
-In Home Assistant, go to **Settings → Add-ons → Add-on Store → ⋮ Menu → Repositories** and add:
+Su Home Assistant, vai su **Impostazioni → Add-on → Raccolta di Add-on → Menù (tre puntini) → Repository** e inserisci:
 
 ```
-https://github.com/gilbert82/ha-ezviz-stream
+https://github.com/francescodoffizi/ha-ezviz-stream
 ```
 
-### Step 2: Install Add-on
+### Passaggio 2: Installa l'Add-on
 
-Find "Ezviz Camera Proxy" in the store and click **Install**.
+Cerca "Ezviz Camera Proxy" nel negozio degli add-on e premi **Installa**.
 
-### Step 3: Configure
+### Passaggio 3: Configurazione
 
-Edit the add-on configuration:
+Modifica la configurazione dell'add-on:
 
-| Option | Required | Default | Description |
+| Opzione | Richiesto | Predefinito | Descrizione |
 |--------|----------|---------|-------------|
-| `ezviz_username` | Yes | — | Ezviz account email |
-| `ezviz_password` | Yes | — | Ezviz account password |
-| `ezviz_region` | No | `apiieu.ezvizlife.com` | API region (see below) |
-| `camera_serial` | Yes | — | Camera serial number (9 chars) |
-| `camera_password` | Yes | — | Camera verification code (label on device) |
-| `snapshot_interval` | No | `30` | Seconds between cloud snapshots (5–300) |
-| `enable_mqtt_events` | No | `true` | Publish events to HA MQTT |
+| `ezviz_username` | Sì | — | Email dell'account Ezviz |
+| `ezviz_password` | Sì | — | Password dell'account Ezviz |
+| `ezviz_region` | No | `apiieu.ezvizlife.com` | Regione dell'API (vedi sotto) |
+| `camera_serial` | Sì | — | Numero di serie della telecamera (9 caratteri) |
+| `camera_password` | Sì | — | Codice di verifica della telecamera (etichetta sul dispositivo) |
+| `snapshot_interval` | No | `30` | Secondi tra gli snapshot cloud (5–300) |
+| `enable_mqtt_events` | No | `true` | Pubblica gli eventi su HA MQTT |
 
-### API Regions
+### Regioni API
 
-| Region | Endpoint |
+| Regione | Endpoint |
 |--------|----------|
-| Europe (default) | `apiieu.ezvizlife.com` |
-| North America | `apiusa.ezvizlife.com` |
-| China | `api.ezvizlife.com` |
-| Rest of World | `apiglobal.ezvizlife.com` |
+| Europa (predefinito) | `apiieu.ezvizlife.com` |
+| Nord America | `apiusa.ezvizlife.com` |
+| Cina | `api.ezvizlife.com` |
+| Resto del Mondo | `apiglobal.ezvizlife.com` |
 
-### Step 4: Start the Add-on
+### Passaggio 4: Avvia l'Add-on
 
-Click **Start**. The add-on starts a web server on port 8099 accessible via HA Ingress.
+Premi **Avvia**. L'add-on avvia un server web sulla porta 8099 accessibile tramite HA Ingress.
 
 ---
 
 ## Web UI
 
-Once running, open the **Ezviz Camera** panel in the HA sidebar. The dashboard shows:
+Una volta avviato, apri il pannello **Ezviz Camera** nella barra laterale di HA. La dashboard mostra:
 
-- Live snapshot (auto-refreshed every `snapshot_interval` seconds)
-- Manual refresh button
-- Camera status: online/offline, battery level, WiFi signal, firmware version
-- Recent alarm events with type, timestamp and optional alarm image link
-- Links to JSON API endpoints
+- Istantanea live (aggiornata automaticamente ogni `snapshot_interval` secondi)
+- Pulsante di aggiornamento manuale
+- Stato della fotocamera: online/offline, livello della batteria, segnale Wi-Fi, versione del firmware
+- Eventi di allarme recenti con tipo, timestamp e link locale all'immagine dell'evento
+- Link agli endpoint delle API JSON
 
 ---
 
-## Using as a Home Assistant Camera Entity
+## Utilizzo come Entità Telecamera in Home Assistant
 
-### Generic Camera (Snapshot)
+### Telecamera Generica (Istantanea)
 
-Add this to your `configuration.yaml`:
+Aggiungi questo al tuo `configuration.yaml`:
 
 ```yaml
 camera:
   - platform: generic
-    name: "HP2 Door Viewer"
+    name: "Spioncino HP2 (Istantanea)"
     still_image_url: "http://localhost:8099/api/snapshot"
     verify_ssl: false
     scan_interval: 30
 ```
 
-### Generic Camera (MJPEG Stream)
+### Telecamera Generica (Simulazione Stream MJPEG)
 
-For a pseudo-live stream:
+Per simulare un flusso live:
 
 ```yaml
 camera:
   - platform: generic
-    name: "HP2 Door Viewer"
+    name: "Spioncino HP2 (Stream)"
     still_image_url: "http://localhost:8099/api/snapshot"
     stream_source: "http://localhost:8099/api/stream"
     verify_ssl: false
 ```
 
-> **Note:** The MJPEG stream is simulated — it loops through cached snapshots from the cloud.
-> True real-time video is not possible without the Ezviz Open Platform developer API.
+> **Nota:** Il flusso MJPEG è simulato — riproduce a ciclo continuo i fotogrammi storici e gli snapshot salvati.
+> Un vero video in tempo reale non è possibile senza l'uso dell'API a pagamento Ezviz Open Platform.
 
-### REST Sensors for Camera Status
+### Sensori REST per lo Stato della Telecamera
 
 ```yaml
 sensor:
   - platform: rest
-    name: "HP2 Battery"
+    name: "Spioncino Batteria"
     resource: "http://localhost:8099/api/status"
     value_template: "{{ value_json.battery_level }}"
     unit_of_measurement: "%"
@@ -129,101 +125,87 @@ sensor:
     scan_interval: 300
 
   - platform: rest
-    name: "HP2 Online"
+    name: "Spioncino Online"
     resource: "http://localhost:8099/api/status"
     value_template: "{{ value_json.online }}"
     scan_interval: 60
 ```
 
-### Doorbell Automation via MQTT Events
+### Automazione del Campanello tramite Eventi MQTT
 
-When `enable_mqtt_events: true`, the add-on publishes to:
+Quando `enable_mqtt_events: true` è attivo, l'add-on pubblica messaggi su:
 
-- `homeassistant/camera/ezviz/<serial>/doorbell` — Doorbell press detected
-- `homeassistant/camera/ezviz/<serial>/motion`   — Motion detected
+- `homeassistant/camera/ezviz/<serial>/doorbell` — Quando viene premuto il campanello
+- `homeassistant/camera/ezviz/<serial>/motion`   — Quando viene rilevato un movimento
 
-Example automation:
+Esempio di automazione:
 
 ```yaml
 automation:
-  - alias: "HP2 Doorbell Notification"
+  - alias: "Notifica Campanello HP2"
     trigger:
       - platform: mqtt
         topic: "homeassistant/camera/ezviz/AB1234567/doorbell"
     action:
-      - service: notify.mobile_app_your_phone
+      - service: notify.mobile_app_tuo_telefono
         data:
-          message: "Someone is at the door!"
+          message: "Qualcuno ha suonato alla porta!"
           data:
-            image: "/api/camera_proxy/camera.hp2_door_viewer"
+            image: "/api/camera_proxy/camera.spioncino_hp2_stream"
 ```
 
 ---
 
-## API Reference
+## Riferimento API
 
-| Endpoint | Method | Description |
+| Endpoint | Metodo | Descrizione |
 |----------|--------|-------------|
-| `/` | GET | Web dashboard |
-| `/api/snapshot` | GET | Current snapshot JPEG |
-| `/api/snapshot/refresh` | GET/POST | Force new snapshot from cloud |
-| `/api/status` | GET | Camera status JSON |
-| `/api/events` | GET | Recent alarm events JSON |
-| `/api/stream` | GET | MJPEG stream |
-| `/api/devices` | GET | All devices on account |
-| `/api/health` | GET | Add-on health check |
+| `/` | GET | Dashboard Web |
+| `/api/snapshot` | GET | Istantanea JPEG corrente |
+| `/api/snapshot/refresh` | GET/POST | Forza un nuovo snapshot dal Cloud |
+| `/api/status` | GET | Stato fotocamera in formato JSON |
+| `/api/events` | GET | Eventi recenti in formato JSON |
+| `/api/stream` | GET | Flusso MJPEG simulato |
+| `/api/devices` | GET | Tutti i dispositivi dell'account |
+| `/api/health` | GET | Controllo di stato dell'add-on |
 
 ---
 
-## Troubleshooting
+## Risoluzione dei Problemi
 
 ### "Auth error: Login failed"
 
-- Double-check your Ezviz username and password
-- If you recently changed your password, update it in the add-on config
-- If you have two-factor authentication enabled in Ezviz, you may need to temporarily log in via
-  the Ezviz mobile app after the first add-on login to confirm the new login session
+- Verifica attentamente l'username e la password di Ezviz.
+- Se hai modificato la password di recente, aggiornala nella configurazione dell'add-on.
+- Se hai l'autenticazione a due fattori attiva su Ezviz, potrebbe essere necessario confermare l'accesso dall'app mobile durante la prima esecuzione dell'add-on.
 
 ### "Could not load camera: …"
 
-- Verify the camera serial number (9-character code, e.g., "AB1234567")
-- Verify the camera verification code (6-digit code on the device label, **not** your account
-  password)
-- Ensure the camera is registered to the same Ezviz account you configured
+- Verifica il numero di serie (codice a 9 caratteri, es: "AB1234567").
+- Verifica il codice di verifica della fotocamera (codice di 6 lettere maiuscole sull'etichetta del dispositivo, **non** la password del tuo account).
+- Assicurati che lo spioncino sia registrato sullo stesso account Ezviz configurato nell'add-on.
 
 ### "Snapshot returned empty data"
 
-- The HP2 is battery-powered and enters deep sleep between events
-- Wake the camera by pressing the doorbell button or walking in front of it
-- Increase `snapshot_interval` to reduce battery drain — the HP2 only wakes to fetch a snapshot
-  when the cloud requests it, which also wakes the device briefly
+- Lo spioncino HP2 è alimentato a batteria ed entra in sonno profondo (deep sleep) tra un evento e l'altro.
+- Risveglia lo spioncino premendo il campanello o camminandoci davanti.
+- Aumenta il valore di `snapshot_interval` per ridurre il consumo di batteria — l'HP2 si attiva ogni volta che viene richiesto uno snapshot dal cloud.
 
-### Snapshot is old / never updates
+### La foto non si aggiorna mai
 
-- Check the add-on logs: **Settings → Add-ons → Ezviz Camera Proxy → Logs**
-- Ensure your Ezviz account credentials are correct
-- Check internet connectivity from the HA host
+- Controlla i log dell'add-on: **Impostazioni → Add-on → Ezviz Camera Proxy → Log**.
+- Assicurati che le credenziali siano corrette e che l'host abbia accesso ad Internet.
 
-### Battery drains quickly
+### La batteria si scarica velocemente
 
-- Increase `snapshot_interval` (e.g., 60 or 120 seconds)
-- Each snapshot fetch causes the HP2 to wake from sleep, which uses battery
-- Consider using MQTT events + on-demand refresh in automations instead of continuous polling
-
-### Web UI not loading
-
-- Ensure the add-on is running (green indicator)
-- Try accessing directly: `http://<ha-ip>:8099/`
-- Check that Ingress is enabled in the add-on configuration
+- Aumenta il `snapshot_interval` (es: 60 o 120 secondi), oppure impostalo su `0` (disattivato) per attivare la modalità **risparmio energetico**.
+- Con intervallo `0`, il proxy risveglierà la fotocamera per scattare una foto **solo** quando riceve un evento push reale (movimento/campanello), salvaguardando enormemente la carica.
 
 ---
 
-## Resources
+## Risorse Utili
 
-- [pyezvizapi on PyPI](https://pypi.org/project/pyezvizapi/)
-- [HA Ezviz Integration](https://www.home-assistant.io/integrations/ezviz/)
-- [HA Add-on Development Docs](https://developers.home-assistant.io/docs/add-ons/configuration)
-- [Ezviz Open Platform (HLS/RTMP)](https://open.ys7.com/help/en/489)
-- [HP2 RTSP community thread](https://community.home-assistant.io/t/ezviz-cameras-rtsp-stream-not-working/523726?page=4)
-- [HP2 snapshot GitHub issue](https://github.com/home-assistant/core/issues/134292)
-- [Add-on GitHub Repository](https://github.com/gilbert82/ha-ezviz-stream)
+- [pyezvizapi su PyPI](https://pypi.org/project/pyezvizapi/)
+- [Integrazione ufficiale Ezviz in HA](https://www.home-assistant.io/integrations/ezviz/)
+- [Documentazione Add-on di Home Assistant](https://developers.home-assistant.io/docs/add-ons/configuration)
+- [Repository GitHub di questo Add-on](https://github.com/francescodoffizi/ha-ezviz-stream)

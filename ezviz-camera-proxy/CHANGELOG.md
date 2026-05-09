@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.6] — 2026-05-09
+
+### Changed
+- **Rebranding & Ownership**: Presa in carico formale dell'ownership dell'intero progetto da parte di Francesco D'Offizi (`francescodoffizi/ha-ezviz-stream`), con riscrittura e aggiornamento di tutti i metadati e URL del repository.
+- **Localizzazione**: Traduzione integrale e pulizia in lingua italiana di tutta la documentazione principale, inclusi `README.md`, `DOCS.md` e i campi di descrizione dell'Add-on.
+
+---
+
 ## [1.6.5] — 2026-05-09
 
 ### Fixed
