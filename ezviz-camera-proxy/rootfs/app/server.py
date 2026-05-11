@@ -452,7 +452,7 @@ def _send_mqtt_discovery():
 
     sensors = [
         ("motion", "Movimento", "motion"),
-        ("doorbell", "Campanello", "doorbell"),
+        ("doorbell", "Campanello", None),
         ("alarm", "Allarme", "problem")
     ]
 
@@ -461,13 +461,14 @@ def _send_mqtt_discovery():
         payload = {
             "name": s_name,
             "state_topic": f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_{s_type}/state",
-            "device_class": s_class,
             "unique_id": f"ezviz_{CAMERA_SERIAL}_{s_type}",
             "device": device_info,
             "payload_on": "ON",
             "payload_off": "OFF",
             "json_attributes_topic": f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_{s_type}/attributes"
         }
+        if s_class:
+            payload["device_class"] = s_class
         try:
             publish.single(config_topic, json.dumps(payload), hostname=mqtt_host, port=mqtt_port, auth=auth, retain=True)
             logger.info("⚡ MQTT Discovery: Sent config for %s", s_type)

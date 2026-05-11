@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.6.7] — 2026-05-11
+
+### Fixed
+- **MQTT Discovery**: Rimosso il `device_class` "doorbell" non valido per `binary_sensor` nella configurazione MQTT Auto-Discovery, prevenendo errori di validazione nel log di Home Assistant.
+- **Error Handling API**: Aggiunto un meccanismo di fallback sicuro in `ezviz_client.py` che restituisce i dati della cache quando il recupero della pagelist fallisce a causa di un timeout di rete (es. "Connection reset by peer" o "Read timed out"), evitando che l'applicazione riporti erroneamente "Device non trovato". Migliorato anche il messaggio d'errore.
+
+---
+
 ## [1.6.6] — 2026-05-09
 
 ### Changed

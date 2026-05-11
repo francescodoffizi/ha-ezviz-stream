@@ -150,6 +150,9 @@ class EzvizClient:
         """
         pages = self._safe_get_page_list()
         if not pages:
+            if self._cached_device_data:
+                logger.warning("Pagelist fetch failed, using cached device data")
+                return self._cached_device_data
             return {}
 
         # Find the device in deviceInfos
@@ -252,7 +255,7 @@ class EzvizClient:
                 device = self._safe_get_device_data(self.camera_serial)
                 if not device:
                     raise EzvizDeviceError(
-                        f"Device {self.camera_serial} not found in account"
+                        f"Failed to fetch device data for {self.camera_serial} (network timeout or not in account)"
                     )
 
                 dev_info = device.get("deviceInfos", {})
