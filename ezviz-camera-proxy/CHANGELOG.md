@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.6] — 2026-10-12
+
+### Fixed & Improved
+- **Robust Wake-Up Handling per Stream Live (HP2)**: Eliminato definitivamente il fallimento di avvio dello stream in Home Assistant (che richiedeva stop/play manuale). L'endpoint `/api/live/stream.m3u8` ora filtra rigorosamente sia i segmenti di errore Ezviz (`ErrCode/5405` e `6519`) sia i tag `#EXT-X-ENDLIST` di fine playlist fittizi inviati dal cloud durante il risveglio dello spioncino, attendendo fino a 14s l'arrivo dei primi frammenti `.ts` reali prima di reindirizzare il player.
+- **Tuning Player HLS.js**: Configurate finestre di timeout estese (15s/20s) e fino a 10 retry automatici su frammenti e manifest per consentire al player HTML5 autonomo di tollerare il risveglio senza blocchi o schermate nere.
+
+---
+
 ## [1.7.5] — 2026-10-12
 
 ### Fixed & Improved
