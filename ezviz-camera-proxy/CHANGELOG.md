@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed & Improved
 - **Live Stream HLS Wake-up Verification**: Risolto l'errore di Home Assistant (*"Timestamp discontinuity detected"* / schermata bianca) quando si avvia lo streaming live con telecamere a batteria (HP2). L'endpoint `/api/live/stream.m3u8` ora include un meccanismo di pre-verifica e wake-up che attende il risveglio completo della telecamera, evitando che HA riceva i segmenti fittizi di errore Ezviz (`ErrCode/6519`) e garantendo una riproduzione fluida dei veri frame H.264.
+- **Persistenza Cache AccessToken Open Platform**: Risolto il problema per cui a ogni riavvio o aggiornamento dell'Add-on veniva generata una nuova coppia di credenziali/token su Ezviz. Il token ora viene salvato nello storage persistente `/data/open_token.json` e riutilizzato finché non scade (validità 7 giorni).
+- **Risolto Timeout Player Standalone**: Adattato il caricamento del player video HTML5 per risolvere i percorsi relativi sia quando viene aperto da Ingress sia quando viene aperto come pagina web autonoma (`/player?live=true`), con gestione automatica della riconnessione e dei retry su `hls.js`.
 
 ---
 

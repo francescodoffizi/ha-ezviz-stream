@@ -394,6 +394,7 @@ def get_client() -> EzvizClient:
                 app_key=EZVIZ_APP_KEY,
                 app_secret=EZVIZ_APP_SECRET,
                 access_token=EZVIZ_ACCESS_TOKEN,
+                token_cache_path=str(DATA_PATH / "open_token.json"),
             )
         return _client
 
@@ -1096,14 +1097,16 @@ def html5_player():
     is_live = request.args.get("live", "false").lower() == "true"
     
     if is_live:
-        video_src = ingress_url("/api/live/stream.m3u8")
+        raw_path = "/api/live/stream.m3u8"
         title = f"Live Stream — {CAMERA_SERIAL}"
     elif alarm_id:
-        video_src = ingress_url(f"/api/events/video/{alarm_id}")
+        raw_path = f"/api/events/video/{alarm_id}"
         title = f"Registrazione Evento #{alarm_id}"
     else:
-        video_src = ingress_url("/api/live/stream.m3u8")
+        raw_path = "/api/live/stream.m3u8"
         title = f"Live Stream — {CAMERA_SERIAL}"
+
+    ingress_path = ingress_url(raw_path)
 
     return f"""<!DOCTYPE html>
 <html lang="it">
@@ -1154,12 +1157,15 @@ def html5_player():
   </div>
   <script>
     const video = document.getElementById('video');
-    const videoSrc = '{video_src}';
+    const isIngress = window.location.pathname.includes('/api/hassio_ingress/');
+    const videoSrc = isIngress ? '{ingress_path}' : '{raw_path}';
 
     if (Hls.isSupported()) {{
       const hls = new Hls({{
         enableWorker: true,
-        lowLatencyMode: true
+        lowLatencyMode: true,
+        manifestLoadingMaxRetry: 6,
+        manifestLoadingRetryDelay: 1500
       }});
       hls.loadSource(videoSrc);
       hls.attachMedia(video);
@@ -1167,7 +1173,22 @@ def html5_player():
         video.play().catch(e => console.log('Autoplay prevented:', e));
       }});
       hls.on(Hls.Events.ERROR, function(event, data) {{
-        console.error('HLS error:', data);
+        console.warn('HLS stream notice:', data);
+        if (data.fatal) {{
+          switch (data.type) {{
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              console.log('Network error, retrying...');
+              hls.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              console.log('Media error, recovering...');
+              hls.recoverMediaError();
+              break;
+            default:
+              hls.destroy();
+              break;
+          }}
+        }}
       }});
     }} else if (video.canPlayType('application/vnd.apple.mpegurl')) {{
       // Native Safari / iOS HLS

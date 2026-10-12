@@ -61,6 +61,7 @@ class EzvizClient:
         app_key: str = "",
         app_secret: str = "",
         access_token: str = "",
+        token_cache_path: str = "/data/open_token.json",
     ):
         self.username = username
         self.password = password
@@ -72,20 +73,54 @@ class EzvizClient:
         self.app_key = app_key
         self.app_secret = app_secret
         self.access_token = access_token
+        self.token_cache_path = Path(token_cache_path)
 
         self._client = None  # pyezvizapi.EzvizClient instance
         self._lock = threading.Lock()
         self._last_login: datetime | None = None
         self._open_token_expire_time: float = 0
 
+        # Load existing cached Open Platform token from disk if valid
+        self._load_cached_token()
+
         # Cached data from last successful pagelist fetch
         self._cached_device_data: dict = {}
         self._cached_status: dict = {}
         self._logged_structure = False
 
+    def _load_cached_token(self):
+        """Load Open Platform AccessToken and expiry from disk cache."""
+        try:
+            if self.token_cache_path.exists():
+                data = json.loads(self.token_cache_path.read_text())
+                cached_token = data.get("accessToken")
+                expire_time = float(data.get("expireTime", 0))
+                # Only use if at least 2 hours left before expiration
+                if cached_token and expire_time > time.time() + 7200:
+                    self.access_token = cached_token
+                    self._open_token_expire_time = expire_time
+                    remaining_hours = (expire_time - time.time()) / 3600.0
+                    logger.info("Loaded valid Open Platform AccessToken from disk cache (expires in %.1f hours)", remaining_hours)
+        except Exception as e:
+            logger.warning("Could not read token cache from %s: %s", self.token_cache_path, e)
+
+    def _save_cached_token(self, token: str, expire_time: float):
+        """Save Open Platform AccessToken and expiry to disk cache."""
+        try:
+            self.token_cache_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "accessToken": token,
+                "expireTime": expire_time,
+                "savedAt": time.time(),
+            }
+            self.token_cache_path.write_text(json.dumps(payload))
+            logger.info("Saved Open Platform AccessToken to persistent cache: %s", self.token_cache_path)
+        except Exception as e:
+            logger.warning("Could not save token cache to %s: %s", self.token_cache_path, e)
+
     def get_open_access_token(self) -> str:
-        """Get a valid Open Platform AccessToken, refreshing via AppKey/AppSecret if needed."""
-        if self.access_token and time.time() < self._open_token_expire_time:
+        """Get a valid Open Platform AccessToken, refreshing via AppKey/AppSecret only if expired."""
+        if self.access_token and time.time() < (self._open_token_expire_time - 7200):
             return self.access_token
 
         if not self.app_key or not self.app_secret:
@@ -105,10 +140,11 @@ class EzvizClient:
                 self.access_token = data["data"]["accessToken"]
                 expire_ms = data["data"].get("expireTime", 0)
                 if expire_ms:
-                    self._open_token_expire_time = (expire_ms / 1000.0) - 3600
+                    self._open_token_expire_time = expire_ms / 1000.0
                 else:
-                    self._open_token_expire_time = time.time() + (6 * 24 * 3600)
-                logger.info("Open Platform AccessToken refreshed successfully")
+                    self._open_token_expire_time = time.time() + (7 * 24 * 3600)
+                self._save_cached_token(self.access_token, self._open_token_expire_time)
+                logger.info("Open Platform AccessToken refreshed and cached successfully")
                 return self.access_token
             else:
                 logger.error("Failed to refresh Open Platform token: %s", data)
