@@ -296,21 +296,39 @@
 
       <!-- HA Integration tip -->
       <div class="card p-4">
-        <h2 class="font-semibold text-sm uppercase tracking-wide mb-2" style="color:var(--ha-text-muted)">URL Telecamera HA</h2>
-        <p class="text-xs mb-2" style="color:var(--ha-text-muted)">
-          Usa nell'integrazione <em>Generic Camera</em>:
+        <h2 class="font-semibold text-sm uppercase tracking-wide mb-2" style="color:var(--ha-text-muted)">Integrazione Telecamera HA</h2>
+        <p class="text-xs mb-1" style="color:var(--ha-text-muted)">
+          Usa nell'integrazione <em>Generic Camera</em> di Home Assistant:
         </p>
-        <code class="text-xs break-all block p-2 rounded"
-              style="background:rgba(255,255,255,0.05); color:var(--ha-accent); font-family:monospace;">
-          http://localhost:8099/api/snapshot
-        </code>
-        <p class="text-xs mt-2" style="color:var(--ha-text-muted)">
-          Or for MJPEG:
+        
+        <div class="mt-2 space-y-2">
+          <div>
+            <span class="text-[10px] uppercase font-bold text-gray-400">URL Istantanea (Still Image):</span>
+            <code class="text-[11px] break-all block p-1.5 mt-0.5 rounded cursor-pointer" onclick="navigator.clipboard.writeText(this.innerText); showToast('Copiato!');"
+                  style="background:rgba(255,255,255,0.05); color:var(--ha-accent); font-family:monospace;" title="Clicca per copiare">
+              http://a70a6fb7-ezviz-camera-proxy:8099/api/snapshot
+            </code>
+          </div>
+
+          <div>
+            <span class="text-[10px] uppercase font-bold text-purple-400">Sorgente Stream (Live HLS Nativo):</span>
+            <code class="text-[11px] break-all block p-1.5 mt-0.5 rounded cursor-pointer" onclick="navigator.clipboard.writeText(this.innerText); showToast('Copiato!');"
+                  style="background:rgba(255,255,255,0.05); color:#a855f7; font-family:monospace;" title="Clicca per copiare">
+              http://a70a6fb7-ezviz-camera-proxy:8099/api/live/stream.m3u8
+            </code>
+          </div>
+
+          <div>
+            <span class="text-[10px] uppercase font-bold text-gray-400">Alternativa Stream MJPEG:</span>
+            <code class="text-[11px] break-all block p-1.5 mt-0.5 rounded cursor-pointer" onclick="navigator.clipboard.writeText(this.innerText); showToast('Copiato!');"
+                  style="background:rgba(255,255,255,0.05); color:var(--ha-text-muted); font-family:monospace;" title="Clicca per copiare">
+              http://a70a6fb7-ezviz-camera-proxy:8099/api/stream
+            </code>
+          </div>
+        </div>
+        <p class="text-[10px] mt-2 text-gray-400 italic">
+          💡 Suggerimento: clicca su un URL per copiarlo negli appunti.
         </p>
-        <code class="text-xs break-all block p-2 rounded"
-              style="background:rgba(255,255,255,0.05); color:var(--ha-accent); font-family:monospace;">
-          http://localhost:8099/api/stream
-        </code>
       </div>
 
     </div>

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.4] — 2026-10-12
+
+### Fixed & Improved
+- **URL Integrazione Telecamera Corretti**: Aggiornati i suggerimenti nella Dashboard e nella documentazione con l'hostname di rete Docker reale (`http://a70a6fb7-ezviz-camera-proxy:8099/...`) al posto del fuorviante `localhost:8099` (che provocava 404 all'interno dei container HA).
+- **Aggiunto URL Stream Live HLS Nativo**: Aggiunto l'indirizzo `/api/live/stream.m3u8` nei suggerimenti per la configurazione come *Generic Camera* in alta definizione su Home Assistant.
+- **Copy-to-Clipboard con un Click**: Aggiunta la funzione di copia istantanea negli appunti con toast di conferma cliccando su ciascun URL.
+
+---
+
 ## [1.7.3] — 2026-10-12
 
 ### Fixed & Improved

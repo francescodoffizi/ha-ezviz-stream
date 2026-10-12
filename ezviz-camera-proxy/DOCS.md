@@ -98,19 +98,22 @@ camera:
 
 ### Telecamera Generica (Simulazione Stream MJPEG)
 
-Per simulare un flusso live:
+Per configurare una telecamera in Home Assistant (usando l'integrazione **Generic Camera** dall'interfaccia utente oppure via `configuration.yaml`):
+
+- **Still Image URL (Istantanea):** `http://a70a6fb7-ezviz-camera-proxy:8099/api/snapshot`
+- **Stream Source (Live Streaming HLS HD):** `http://a70a6fb7-ezviz-camera-proxy:8099/api/live/stream.m3u8`
+- **Stream Source Alternativa (MJPEG):** `http://a70a6fb7-ezviz-camera-proxy:8099/api/stream`
+
+Esempio YAML:
 
 ```yaml
 camera:
   - platform: generic
     name: "Spioncino HP2 (Stream)"
-    still_image_url: "http://localhost:8099/api/snapshot"
-    stream_source: "http://localhost:8099/api/stream"
+    still_image_url: "http://a70a6fb7-ezviz-camera-proxy:8099/api/snapshot"
+    stream_source: "http://a70a6fb7-ezviz-camera-proxy:8099/api/live/stream.m3u8"
     verify_ssl: false
 ```
-
-> **Nota:** Il flusso MJPEG è simulato — riproduce a ciclo continuo i fotogrammi storici e gli snapshot salvati.
-> Un vero video in tempo reale non è possibile senza l'uso dell'API a pagamento Ezviz Open Platform.
 
 ### Sensori REST per lo Stato della Telecamera
 
@@ -118,7 +121,7 @@ camera:
 sensor:
   - platform: rest
     name: "Spioncino Batteria"
-    resource: "http://localhost:8099/api/status"
+    resource: "http://a70a6fb7-ezviz-camera-proxy:8099/api/status"
     value_template: "{{ value_json.battery_level }}"
     unit_of_measurement: "%"
     device_class: battery
@@ -126,7 +129,7 @@ sensor:
 
   - platform: rest
     name: "Spioncino Online"
-    resource: "http://localhost:8099/api/status"
+    resource: "http://a70a6fb7-ezviz-camera-proxy:8099/api/status"
     value_template: "{{ value_json.online }}"
     scan_interval: 60
 ```
