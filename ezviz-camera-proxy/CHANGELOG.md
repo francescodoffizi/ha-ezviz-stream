@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.5] — 2026-10-12
+
+### Fixed & Improved
+- **Live Stream HLS Wake-up Verification**: Risolto l'errore di Home Assistant (*"Timestamp discontinuity detected"* / schermata bianca) quando si avvia lo streaming live con telecamere a batteria (HP2). L'endpoint `/api/live/stream.m3u8` ora include un meccanismo di pre-verifica e wake-up che attende il risveglio completo della telecamera, evitando che HA riceva i segmenti fittizi di errore Ezviz (`ErrCode/6519`) e garantendo una riproduzione fluida dei veri frame H.264.
+
+---
+
 ## [1.7.4] — 2026-10-12
 
 ### Fixed & Improved

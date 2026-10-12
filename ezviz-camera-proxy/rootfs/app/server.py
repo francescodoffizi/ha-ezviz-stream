@@ -1058,13 +1058,32 @@ def api_event_video(alarm_id):
 
 @app.route("/api/live/stream.m3u8")
 def api_live_hls():
-    """Return redirect to live HLS (.m3u8) stream for Home Assistant."""
+    """Return redirect to live HLS (.m3u8) stream for Home Assistant with wake-up verification."""
     try:
         client = get_client()
         stream_url = client.get_hls_stream_url()
-        if stream_url:
-            return redirect(stream_url)
-        return jsonify({"error": "Could not obtain live HLS stream"}), 502
+        if not stream_url:
+            return jsonify({"error": "Could not obtain live HLS stream from Ezviz"}), 502
+
+        # Verify that camera is awake and stream is ready (wait up to 6 seconds if waking up)
+        for attempt in range(5):
+            try:
+                check_resp = requests.get(stream_url, timeout=4, verify=False, allow_redirects=True)
+                # If stream contains valid .ts segments and NO ErrCode (e.g. 6519 wake-up), it's ready
+                if check_resp.status_code == 200 and ".ts" in check_resp.text and "ErrCode" not in check_resp.text:
+                    logger.info("⚡ Live HLS stream is awake and ready on attempt %d", attempt + 1)
+                    return redirect(stream_url)
+                elif "ErrCode" in check_resp.text:
+                    logger.info("⚡ Camera is still waking up (attempt %d/5)... waiting 1.5s", attempt + 1)
+                    time.sleep(1.5)
+                else:
+                    time.sleep(1)
+            except Exception as ce:
+                logger.debug("HLS pre-check exception (attempt %d): %s", attempt + 1, ce)
+                time.sleep(1)
+
+        # Return the stream URL anyway as fallback
+        return redirect(stream_url)
     except Exception as e:
         logger.error("Error generating live HLS stream: %s", e)
         return jsonify({"error": str(e)}), 500
