@@ -186,6 +186,12 @@
             </svg>
             Aggiorna
           </button>
+          <button class="btn-primary flex items-center gap-2" id="live-hls-btn" onclick="openPlayer('', true)" style="background:var(--ha-success)">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            Live Nativo HLS
+          </button>
           <button class="btn-primary flex items-center gap-2" id="history-btn" onclick="toggleHistory()" style="background:var(--ha-warning)">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
@@ -349,35 +355,54 @@
                 </span>
               </div>
             </div>
-            <div class="flex items-center gap-2">
-              {% if event.local_pic %}
-              <span class="badge badge-other !bg-green-900/20 !text-green-400 text-[9px]">Local</span>
-              {% endif %}
-              
-              {% if img_url %}
-              <button onclick="showImageModal('{{ img_url }}')"
-                 class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1" 
-                 style="background:var(--ha-accent); color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;">
-                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                Vedi
-              </button>
-              {% endif %}
+              <div class="flex items-center gap-2">
+                {% if event.local_pic %}
+                <span class="badge badge-other !bg-green-900/20 !text-green-400 text-[9px]">Local</span>
+                {% endif %}
+                
+                <button onclick="openPlayer('{{ event.alarm_id }}', false)"
+                   class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1"
+                   style="background:#8b5cf6; color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;">
+                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                  </svg>
+                  Video
+                </button>
+
+                {% if img_url %}
+                <button onclick="showImageModal('{{ img_url }}')"
+                   class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1" 
+                   style="background:var(--ha-accent); color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;">
+                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                  Foto
+                </button>
+                {% endif %}
+              </div>
             </div>
+            {% endfor %}
           </div>
-          {% endfor %}
+          {% else %}
+          <p class="text-sm" style="color:var(--ha-text-muted)">Nessun evento ancora. Gli eventi appaiono qui quando viene rilevato un movimento o il campanello.</p>
+          {% endif %}
         </div>
-        {% else %}
-        <p class="text-sm" style="color:var(--ha-text-muted)">Nessun evento ancora. Gli eventi appaiono qui quando viene rilevato un movimento o il campanello.</p>
-        {% endif %}
       </div>
+
     </div>
 
-  </div>
+    <!-- Video Player Modal -->
+    <div id="video-modal" onclick="closePlayerModal()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); align-items:center; justify-content:center; z-index:10000; backdrop-filter:blur(4px); padding:20px;">
+      <div onclick="closePlayerModal()" style="position:absolute; top:20px; right:20px; background:var(--ha-card-bg); border:1px solid var(--ha-border); color:#fff; border-radius:50%; width:40px; height:40px; display:flex; align-items:center; justify-content:center; cursor:pointer;">
+        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </div>
+      <iframe id="player-iframe" src="" style="width:100%; max-width:960px; height:540px; border:none; border-radius:12px; background:#000;" onclick="event.stopPropagation()"></iframe>
+    </div>
 
-  <!-- Image Modal -->
+    <!-- Image Modal -->
   <div id="image-modal" onclick="hideImageModal()">
     <div id="modal-close" onclick="hideImageModal()">
       <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -727,6 +752,14 @@
               </div>
               <div class="flex items-center gap-2">
                 ${localBadge}
+                <button onclick="openPlayer('${e.alarm_id}', false)"
+                   class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1"
+                   style="background:#8b5cf6; color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;">
+                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                  </svg>
+                  Video
+                </button>
                 ${imgUrl ? `
                   <button onclick="showImageModal('${imgUrl}')" 
                      class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1" 
@@ -747,8 +780,30 @@
     }
 
     // -----------------------------------------------------------------------
-    // Modal
+    // Modal & Player
     // -----------------------------------------------------------------------
+    function openPlayer(alarmId, isLive) {
+        const modal = document.getElementById('video-modal');
+        const iframe = document.getElementById('player-iframe');
+        if (isLive) {
+            iframe.src = url('/player?live=true');
+        } else if (alarmId) {
+            iframe.src = url('/player?alarm_id=' + encodeURIComponent(alarmId));
+        } else {
+            iframe.src = url('/player?live=true');
+        }
+        modal.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closePlayerModal() {
+        const modal = document.getElementById('video-modal');
+        const iframe = document.getElementById('player-iframe');
+        iframe.src = ''; // Stop audio/video playback
+        modal.style.display = 'none';
+        document.body.style.overflow = '';
+    }
+
     function showImageModal(src) {
         if (!src) return;
         const modal = document.getElementById('image-modal');
@@ -777,9 +832,12 @@
       setInterval(pollStatus, 30000);
       setInterval(pollEvents, 60000);
 
-      // ESC key to close modal
+      // ESC key to close modals
       document.addEventListener('keydown', (e) => {
-          if (e.key === 'Escape') hideImageModal();
+          if (e.key === 'Escape') {
+              hideImageModal();
+              closePlayerModal();
+          }
       });
     });
   </script>

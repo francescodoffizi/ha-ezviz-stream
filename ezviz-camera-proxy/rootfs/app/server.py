@@ -53,6 +53,10 @@ logger = logging.getLogger(__name__)
 EZVIZ_USERNAME = os.environ.get("EZVIZ_USERNAME", "")
 EZVIZ_PASSWORD = os.environ.get("EZVIZ_PASSWORD", "")
 EZVIZ_REGION = os.environ.get("EZVIZ_REGION", "apiieu.ezvizlife.com")
+EZVIZ_OPEN_DOMAIN = os.environ.get("EZVIZ_OPEN_DOMAIN", "https://ieuopen.ezvizlife.com")
+EZVIZ_APP_KEY = os.environ.get("EZVIZ_APP_KEY", "")
+EZVIZ_APP_SECRET = os.environ.get("EZVIZ_APP_SECRET", "")
+EZVIZ_ACCESS_TOKEN = os.environ.get("EZVIZ_ACCESS_TOKEN", "")
 CAMERA_SERIAL = os.environ.get("CAMERA_SERIAL", "")
 CAMERA_PASSWORD = os.environ.get("CAMERA_PASSWORD", "")
 EZVIZ_ENCRYPTION_KEY = os.environ.get("EZVIZ_ENCRYPTION_KEY", "")
@@ -268,7 +272,11 @@ def get_client() -> EzvizClient:
                 region=EZVIZ_REGION,
                 camera_serial=CAMERA_SERIAL,
                 camera_password=CAMERA_PASSWORD,
-                encryption_key=EZVIZ_ENCRYPTION_KEY
+                encryption_key=EZVIZ_ENCRYPTION_KEY,
+                open_domain=EZVIZ_OPEN_DOMAIN,
+                app_key=EZVIZ_APP_KEY,
+                app_secret=EZVIZ_APP_SECRET,
+                access_token=EZVIZ_ACCESS_TOKEN,
             )
         return _client
 
@@ -375,12 +383,12 @@ def _on_ezviz_push_message(msg):
                 logger.info("⚡ TRIGGERING GLOBAL ALARM for code %s", alert_code)
                 publish.single(global_topic, "ON", hostname=mqtt_host, port=mqtt_port, auth=auth)
             
-            # Attributes topic - Flatten 'ext' into top-level
-            attr_data = msg.copy()
-            if "ext" in attr_data and isinstance(attr_data["ext"], dict):
-                attr_data.update(attr_data.pop("ext"))
-            
-            # Shorten URLs to prevent Home Assistant >255 char state errors
+            # Add direct video endpoints
+            attr_data["image_url"] = ingress_url(f"/api/events/image/{ev_id}")
+            attr_data["video_url"] = ingress_url(f"/api/events/video/{ev_id}")
+            attr_data["player_url"] = ingress_url(f"/player?alarm_id={ev_id}")
+
+            # Shorten long URLs to prevent Home Assistant >255 char state errors
             for k, v in list(attr_data.items()):
                 if isinstance(v, str) and v.startswith("http") and len(v) > 200:
                     attr_data[k] = ingress_url(f"/api/events/image/{ev_id}")
@@ -866,6 +874,144 @@ def api_event_image(alarm_id):
     if filepath.exists():
         return send_file(filepath, mimetype="image/jpeg")
     return jsonify({"error": "Image not found locally"}), 404
+
+
+@app.route("/api/events/video/<alarm_id>")
+def api_event_video(alarm_id):
+    """Obtain and redirect to the native HLS (.m3u8) video stream for this event."""
+    logger.info("⚡ Request video stream for alarm %s", alarm_id)
+    event = None
+    for e in _event_store.get_all():
+        if str(e.get("alarm_id")) == str(alarm_id):
+            event = e
+            break
+
+    start_str = None
+    stop_str = None
+    if event and event.get("alarm_time"):
+        try:
+            ev_dt = datetime.strptime(event["alarm_time"], "%Y-%m-%d %H:%M:%S")
+            start_str = (ev_dt - timedelta(seconds=10)).strftime("%Y-%m-%d %H:%M:%S")
+            stop_str = (ev_dt + timedelta(seconds=35)).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception as te:
+            logger.warning("Could not parse event time '%s': %s", event.get("alarm_time"), te)
+
+    try:
+        client = get_client()
+        stream_url = client.get_hls_stream_url(start_time=start_str, stop_time=stop_str)
+        if stream_url:
+            return redirect(stream_url)
+        return jsonify({"error": "Could not obtain HLS stream from Ezviz Open Platform"}), 502
+    except Exception as e:
+        logger.error("Error generating event video stream: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/live/stream.m3u8")
+def api_live_hls():
+    """Return redirect to live HLS (.m3u8) stream for Home Assistant."""
+    try:
+        client = get_client()
+        stream_url = client.get_hls_stream_url()
+        if stream_url:
+            return redirect(stream_url)
+        return jsonify({"error": "Could not obtain live HLS stream"}), 502
+    except Exception as e:
+        logger.error("Error generating live HLS stream: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/player")
+def html5_player():
+    """Lightweight universal HTML5 video player page for HLS streams."""
+    alarm_id = request.args.get("alarm_id", "")
+    is_live = request.args.get("live", "false").lower() == "true"
+    
+    if is_live:
+        video_src = ingress_url("/api/live/stream.m3u8")
+        title = f"Live Stream — {CAMERA_SERIAL}"
+    elif alarm_id:
+        video_src = ingress_url(f"/api/events/video/{alarm_id}")
+        title = f"Registrazione Evento #{alarm_id}"
+    else:
+        video_src = ingress_url("/api/live/stream.m3u8")
+        title = f"Live Stream — {CAMERA_SERIAL}"
+
+    return f"""<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{title}</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <style>
+    body {{
+      margin: 0;
+      background: #000;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }}
+    .player-container {{
+      width: 100%;
+      max-width: 960px;
+      padding: 10px;
+      box-sizing: border-box;
+      text-align: center;
+    }}
+    video {{
+      width: 100%;
+      height: auto;
+      max-height: 80vh;
+      background: #111;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.8);
+    }}
+    h1 {{
+      font-size: 16px;
+      font-weight: 500;
+      margin-bottom: 12px;
+      color: #aaa;
+    }}
+  </style>
+</head>
+<body>
+  <div class="player-container">
+    <h1>{title}</h1>
+    <video id="video" controls autoplay playsinline></video>
+  </div>
+  <script>
+    const video = document.getElementById('video');
+    const videoSrc = '{video_src}';
+
+    if (Hls.isSupported()) {{
+      const hls = new Hls({{
+        enableWorker: true,
+        lowLatencyMode: true
+      }});
+      hls.loadSource(videoSrc);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, function() {{
+        video.play().catch(e => console.log('Autoplay prevented:', e));
+      }});
+      hls.on(Hls.Events.ERROR, function(event, data) {{
+        console.error('HLS error:', data);
+      }});
+    }} else if (video.canPlayType('application/vnd.apple.mpegurl')) {{
+      // Native Safari / iOS HLS
+      video.src = videoSrc;
+      video.addEventListener('loadedmetadata', function() {{
+        video.play().catch(e => console.log('Autoplay prevented:', e));
+      }});
+    }}
+  </script>
+</body>
+</html>"""
+
 
 
 @app.route("/api/stream")

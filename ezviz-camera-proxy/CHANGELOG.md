@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.0] — 2026-10-12
+
+### Added
+- **Ezviz Open Platform & Native HLS Video Streaming**: Integrazione completa con la piattaforma ufficiale Ezviz Open (`ieuopen.ezvizlife.com` per l'Europa) tramite `appKey`, `appSecret` e `accessToken`.
+- **Riproduzione Video Nativi degli Eventi**: Endpoint `/api/events/video/<alarm_id>` che calcola il lasso temporale dell'evento registrato su scheda MicroSD locale e reindirizza al flusso nativo HLS (`.m3u8`) ad alta definizione, azzerando le perdite di fotogrammi rispetto al campionamento a scatti.
+- **Live Stream HLS Nativo**: Endpoint `/api/live/stream.m3u8` per visualizzare in tempo reale il video HD nativo H.264 direttamente su Home Assistant e browser.
+- **Web Player HTML5 Universale**: Interfaccia player `/player?alarm_id=...` basata su `hls.js` con supporto nativo per iOS/Safari, integrata nella dashboard con un pratico modal e comandi dedicati "Video" e "Live Nativo HLS".
+- **Attributi Evento MQTT Arricchiti**: I payload degli eventi MQTT pubblicati verso Home Assistant ora includono automaticamente `video_url` e `player_url` per notifiche rich push con video e azioni rapide.
+
+---
+
 ## [1.6.7] — 2026-05-11
 
 ### Fixed

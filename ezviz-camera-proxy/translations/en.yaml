@@ -14,6 +14,24 @@ configuration:
       The Ezviz API region endpoint. Use the default for most European accounts.
       North America: apiusa.ezvizlife.com. EU: apiieu.ezvizlife.com.
       China: api.ezvizlife.com.
+  ezviz_open_domain:
+    name: Ezviz Open Platform Domain
+    description: >-
+      Ezviz Open Platform base URL for OpenAPI and native HLS stream generation.
+      Europe: https://ieuopen.ezvizlife.com. Global/US: https://isgpopen.ezvizlife.com.
+  ezviz_app_key:
+    name: Ezviz Open Platform AppKey
+    description: >-
+      AppKey from the Ezviz Open Platform Developer Console.
+  ezviz_app_secret:
+    name: Ezviz Open Platform AppSecret
+    description: >-
+      AppSecret from the Ezviz Open Platform Developer Console.
+  ezviz_access_token:
+    name: Ezviz Open Platform AccessToken
+    description: >-
+      Optional pre-generated AccessToken from the Ezviz Open Platform console.
+      If left empty or expired, the add-on will automatically obtain and refresh it using AppKey and AppSecret.
   camera_serial:
     name: Camera Serial Number
     description: >-

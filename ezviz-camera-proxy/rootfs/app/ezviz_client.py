@@ -57,6 +57,10 @@ class EzvizClient:
         camera_serial: str = "",
         camera_password: str = "",
         encryption_key: str = "",
+        open_domain: str = "https://ieuopen.ezvizlife.com",
+        app_key: str = "",
+        app_secret: str = "",
+        access_token: str = "",
     ):
         self.username = username
         self.password = password
@@ -64,15 +68,100 @@ class EzvizClient:
         self.camera_serial = camera_serial
         self.camera_password = camera_password
         self.encryption_key = encryption_key
+        self.open_domain = (open_domain or "https://ieuopen.ezvizlife.com").rstrip("/")
+        self.app_key = app_key
+        self.app_secret = app_secret
+        self.access_token = access_token
 
         self._client = None  # pyezvizapi.EzvizClient instance
         self._lock = threading.Lock()
         self._last_login: datetime | None = None
+        self._open_token_expire_time: float = 0
 
         # Cached data from last successful pagelist fetch
         self._cached_device_data: dict = {}
         self._cached_status: dict = {}
         self._logged_structure = False
+
+    def get_open_access_token(self) -> str:
+        """Get a valid Open Platform AccessToken, refreshing via AppKey/AppSecret if needed."""
+        if self.access_token and time.time() < self._open_token_expire_time:
+            return self.access_token
+
+        if not self.app_key or not self.app_secret:
+            return self.access_token
+
+        try:
+            url = f"{self.open_domain}/api/lapp/token/get"
+            logger.info("Requesting fresh Open Platform AccessToken from %s...", url)
+            resp = requests.post(
+                url,
+                data={"appKey": self.app_key, "appSecret": self.app_secret},
+                timeout=10,
+                verify=False
+            )
+            data = resp.json()
+            if data.get("code") == "200" and data.get("data", {}).get("accessToken"):
+                self.access_token = data["data"]["accessToken"]
+                expire_ms = data["data"].get("expireTime", 0)
+                if expire_ms:
+                    self._open_token_expire_time = (expire_ms / 1000.0) - 3600
+                else:
+                    self._open_token_expire_time = time.time() + (6 * 24 * 3600)
+                logger.info("Open Platform AccessToken refreshed successfully")
+                return self.access_token
+            else:
+                logger.error("Failed to refresh Open Platform token: %s", data)
+        except Exception as e:
+            logger.error("Error refreshing Open Platform token: %s", e)
+
+        return self.access_token
+
+    def get_hls_stream_url(self, start_time: str | None = None, stop_time: str | None = None) -> str | None:
+        """Get HLS (.m3u8) stream URL for live or playback of SD records."""
+        token = self.get_open_access_token()
+        if not token:
+            logger.warning("No Open Platform AccessToken available for HLS stream")
+            return None
+
+        url = f"{self.open_domain}/api/lapp/v2/live/address/get"
+        payload = {
+            "accessToken": token,
+            "deviceSerial": self.camera_serial,
+            "channelNo": 1,
+            "protocol": 2, # HLS
+        }
+        if start_time and stop_time:
+            payload["type"] = 2 # Playback
+            payload["startTime"] = start_time
+            payload["stopTime"] = stop_time
+
+        try:
+            logger.info("Requesting HLS stream URL from Ezviz Open Platform (type=%s, start=%s, stop=%s)...",
+                        payload.get("type", 1), start_time, stop_time)
+            resp = requests.post(url, data=payload, timeout=12, verify=False)
+            data = resp.json()
+            if data.get("code") == "200" and data.get("data", {}).get("url"):
+                stream_url = data["data"]["url"]
+                logger.info("Successfully obtained HLS stream URL: %s", stream_url)
+                return stream_url
+            else:
+                logger.error("Ezviz Open Platform returned error for HLS stream: %s", data)
+                # If token expired, invalidate and retry once
+                if data.get("code") in ["10002", 10002]:
+                    self._open_token_expire_time = 0
+                    if self.app_key and self.app_secret:
+                        logger.info("Retrying with new Open Platform token...")
+                        payload["accessToken"] = self.get_open_access_token()
+                        retry_resp = requests.post(url, data=payload, timeout=12, verify=False)
+                        retry_data = retry_resp.json()
+                        if retry_data.get("code") == "200" and retry_data.get("data", {}).get("url"):
+                            return retry_data["data"]["url"]
+        except Exception as e:
+            logger.error("Error requesting HLS stream address: %s", e)
+
+        return None
+
 
     # ------------------------------------------------------------------
     # Authentication

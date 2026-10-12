@@ -1,7 +1,7 @@
 name: "Ezviz Camera Proxy"
-version: "1.6.7"
+version: "1.7.0"
 slug: ezviz-camera-proxy
-description: "Proxy per telecamere Ezviz (incluso HP2) che non supportano RTSP. Utilizza l'API Ezviz Cloud per istantanee, eventi e live stream opzionale."
+description: "Proxy per telecamere Ezviz (incluso HP2) che non supportano RTSP. Utilizza l'API Ezviz Cloud e Open Platform per istantanee, eventi e video streaming HLS nativo."
 url: "https://github.com/francescodoffizi/ha-ezviz-stream"
 arch:
   - amd64
@@ -29,6 +29,10 @@ options:
   ezviz_username: ""
   ezviz_password: ""
   ezviz_region: "apiieu.ezvizlife.com"
+  ezviz_open_domain: "https://ieuopen.ezvizlife.com"
+  ezviz_app_key: ""
+  ezviz_app_secret: ""
+  ezviz_access_token: ""
   ezviz_encryption_key: ""
   camera_serial: ""
   camera_password: ""
@@ -42,6 +46,10 @@ schema:
   ezviz_username: str
   ezviz_password: password
   ezviz_region: "str?"
+  ezviz_open_domain: "str?"
+  ezviz_app_key: "str?"
+  ezviz_app_secret: "password?"
+  ezviz_access_token: "password?"
   ezviz_encryption_key: "str?"
   camera_serial: str
   camera_password: password
@@ -52,3 +60,4 @@ schema:
   mqtt_user: "str?"
   mqtt_password: "password?"
 init: false
+
