@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.2] — 2026-10-12
+
+### Fixed
+- **MQTT Event Attributes**: Risolto bug di inizializzazione su `attr_data` durante gli eventi real-time push che preveniva la pubblicazione corretta degli attributi verso Home Assistant.
+
+---
+
 ## [1.7.1] — 2026-10-12
 
 ### Added

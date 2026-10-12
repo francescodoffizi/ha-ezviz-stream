@@ -460,6 +460,11 @@ def _on_ezviz_push_message(msg):
                 logger.info("⚡ TRIGGERING GLOBAL ALARM for code %s", alert_code)
                 publish.single(global_topic, "ON", hostname=mqtt_host, port=mqtt_port, auth=auth)
             
+            # Attributes topic - Flatten 'ext' into top-level
+            attr_data = msg.copy()
+            if "ext" in attr_data and isinstance(attr_data["ext"], dict):
+                attr_data.update(attr_data.pop("ext"))
+
             # Add direct video endpoints
             attr_data["image_url"] = ingress_url(f"/api/events/image/{ev_id}")
             attr_data["video_url"] = ingress_url(f"/api/events/video/{ev_id}")
