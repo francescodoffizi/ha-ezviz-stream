@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.1] — 2026-10-12
+
+### Added
+- **Download Automatico Clip MP4 con FFmpeg**: Aggiunto `ffmpeg` nei binari dell'Add-on (`apk add ffmpeg`) e implementato un worker in background che scarica e archivia automaticamente i filmati degli eventi registrati su SD in formato nativo `.mp4` ad alta definizione (`-c copy`, consumo CPU irrisorio).
+- **Nuovo Endpoint Clip Video**: Esposto `/api/events/clip/<alarm_id>` per scaricare o riprodurre direttamente il file `.mp4` locale senza dipendere dalla sessione di streaming cloud.
+- **Pulsante di Download MP4 nella Dashboard**: Aggiunto il pulsante "MP4" in ciascuna riga dell'elenco eventi per scaricare il file video sul computer o smartphone con un click.
+- **Attributo MQTT `clip_url`**: I messaggi MQTT di notifica includono ora anche `clip_url` per allegare direttamente il file `.mp4` locale nelle notifiche o inviarlo via bot Telegram/webhook.
+
+---
+
 ## [1.7.0] — 2026-10-12
 
 ### Added

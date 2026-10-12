@@ -369,6 +369,15 @@
                   Video
                 </button>
 
+                <a href="{{ ingress_url('/api/events/clip/' ~ event.alarm_id) }}" target="_blank" download="event_{{ event.alarm_id }}.mp4"
+                   class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1"
+                   style="background:#059669; color:white; border-radius:4px; text-decoration:none;">
+                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  MP4
+                </a>
+
                 {% if img_url %}
                 <button onclick="showImageModal('{{ img_url }}')"
                    class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1" 
@@ -760,6 +769,14 @@
                   </svg>
                   Video
                 </button>
+                <a href="${url('/api/events/clip/' + e.alarm_id)}" target="_blank" download="event_${e.alarm_id}.mp4"
+                   class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1"
+                   style="background:#059669; color:white; border-radius:4px; text-decoration:none;">
+                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  MP4
+                </a>
                 ${imgUrl ? `
                   <button onclick="showImageModal('${imgUrl}')" 
                      class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1" 

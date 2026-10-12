@@ -18,6 +18,7 @@ export CAMERA_PASSWORD="$(bashio::config 'camera_password')"
 export EZVIZ_ENCRYPTION_KEY="$(bashio::config 'ezviz_encryption_key')"
 export SNAPSHOT_INTERVAL="$(bashio::config 'snapshot_interval')"
 export ENABLE_MQTT_EVENTS="$(bashio::config 'enable_mqtt_events')"
+export SAVE_EVENT_CLIPS="$(bashio::config 'save_event_clips')"
 
 # HA Supervisor / Ingress environment
 export INGRESS_ENTRY="$(bashio::addon.ingress_entry 2>/dev/null || echo '/')"

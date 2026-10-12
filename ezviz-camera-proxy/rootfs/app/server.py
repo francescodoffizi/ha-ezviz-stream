@@ -17,6 +17,8 @@ import io
 import json
 import logging
 import os
+import subprocess
+import shutil
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -62,6 +64,7 @@ CAMERA_PASSWORD = os.environ.get("CAMERA_PASSWORD", "")
 EZVIZ_ENCRYPTION_KEY = os.environ.get("EZVIZ_ENCRYPTION_KEY", "")
 SNAPSHOT_INTERVAL = int(os.environ.get("SNAPSHOT_INTERVAL", "30"))
 ENABLE_MQTT_EVENTS = os.environ.get("ENABLE_MQTT_EVENTS", "true").lower() == "true"
+SAVE_EVENT_CLIPS = os.environ.get("SAVE_EVENT_CLIPS", "true").lower() == "true"
 
 # Ingress support: HA sets INGRESS_ENTRY e.g. "/api/hassio_ingress/abcdef"
 INGRESS_ENTRY = os.environ.get("INGRESS_ENTRY", "/").rstrip("/")
@@ -73,6 +76,8 @@ SNAPSHOT_PATH.mkdir(parents=True, exist_ok=True)
 CURRENT_SNAPSHOT_FILE = SNAPSHOT_PATH / "current.jpg"
 EVENT_SNAPSHOT_PATH = SNAPSHOT_PATH / "events"
 EVENT_SNAPSHOT_PATH.mkdir(parents=True, exist_ok=True)
+EVENT_VIDEO_PATH = DATA_PATH / "videos"
+EVENT_VIDEO_PATH.mkdir(parents=True, exist_ok=True)
 _last_alarm_type = "Mai"
 _last_alarm_time = "Mai"
 _last_doorbell_time = "Mai"
@@ -129,6 +134,7 @@ class EventStore:
                     "alarm_pic_url": event.get("alarm_pic_url") or event.get("pic_url") or "",
                     "is_push": event.get("is_push", False),
                     "local_pic": event.get("local_pic", False),
+                    "local_video": event.get("local_video", (EVENT_VIDEO_PATH / f"video_{ev_id}.mp4").exists()),
                     "device_serial": event.get("device_serial", CAMERA_SERIAL)
                 }
 
@@ -144,6 +150,8 @@ class EventStore:
                     # Merge flags
                     if normalized["is_push"]: old["is_push"] = True
                     if normalized["alarm_pic_url"]: old["alarm_pic_url"] = normalized["alarm_pic_url"]
+                    if (EVENT_VIDEO_PATH / f"video_{old['alarm_id']}.mp4").exists():
+                        old["local_video"] = True
                 else:
                     self.events.append(normalized)
 
@@ -162,23 +170,32 @@ class EventStore:
                         _last_doorbell_time = e["alarm_time"]
                         break
             
-            # Prune old images from disk
+            # Prune old images and videos from disk
             self._prune_disk()
             
         if download_images:
             threading.Thread(target=self._process_images, daemon=True, name="event-image-processor").start()
+            if SAVE_EVENT_CLIPS:
+                threading.Thread(target=self._process_videos, daemon=True, name="event-video-processor").start()
 
     def _prune_disk(self):
-        """Delete images from EVENT_SNAPSHOT_PATH that are no longer in self.events."""
+        """Delete images and videos from disk that are no longer in self.events."""
         try:
-            current_ids = {e["alarm_id"] for e in self.events if e.get("local_pic")}
+            current_ids = {e["alarm_id"] for e in self.events}
             for f in EVENT_SNAPSHOT_PATH.glob("event_*.jpg"):
-                # Extract ID from event_<id>.jpg
                 try:
                     f_id = f.name[6:-4]
                     if f_id not in current_ids:
                         f.unlink()
                         logger.debug("Pruned old event image: %s", f.name)
+                except: continue
+
+            for f in EVENT_VIDEO_PATH.glob("video_*.mp4"):
+                try:
+                    f_id = f.name[6:-4]
+                    if f_id not in current_ids:
+                        f.unlink()
+                        logger.debug("Pruned old event video: %s", f.name)
                 except: continue
         except Exception as e:
             logger.error("Disk pruning failed: %s", e)
@@ -203,7 +220,6 @@ class EventStore:
                     filepath.write_bytes(img_bytes)
                     
                     with self.lock:
-                        # Update event in list
                         for e in self.events:
                             if e["alarm_id"] == ev["alarm_id"]:
                                 e["local_pic"] = True
@@ -212,6 +228,67 @@ class EventStore:
                 time.sleep(1) # Throttle
         except Exception as e:
             logger.error("Event image processor failed: %s", e)
+
+    def _process_videos(self):
+        """Download MP4 clips for recent events using ffmpeg from their HLS stream."""
+        if not shutil.which("ffmpeg"):
+            logger.warning("ffmpeg not found, skipping video clip downloads")
+            return
+
+        try:
+            with self.lock:
+                to_process = [e for e in self.events if not e.get("local_video")]
+            
+            for ev in to_process:
+                ev_id = ev["alarm_id"]
+                out_path = EVENT_VIDEO_PATH / f"video_{ev_id}.mp4"
+                if out_path.exists() and out_path.stat().st_size > 10000:
+                    with self.lock:
+                        ev["local_video"] = True
+                    continue
+
+                ev_time = ev.get("alarm_time")
+                if not ev_time: continue
+
+                try:
+                    ev_dt = datetime.strptime(ev_time, "%Y-%m-%d %H:%M:%S")
+                    start_str = (ev_dt - timedelta(seconds=10)).strftime("%Y-%m-%d %H:%M:%S")
+                    stop_str = (ev_dt + timedelta(seconds=35)).strftime("%Y-%m-%d %H:%M:%S")
+                except: continue
+
+                client = get_client()
+                stream_url = client.get_hls_stream_url(start_time=start_str, stop_time=stop_str)
+                if not stream_url:
+                    continue
+
+                logger.info("⚡ Downloading native MP4 clip for event %s via ffmpeg...", ev_id)
+                tmp_out = EVENT_VIDEO_PATH / f"tmp_{ev_id}.mp4"
+                
+                # Execute ffmpeg with stream copy (-c copy)
+                cmd = [
+                    "ffmpeg", "-y",
+                    "-i", stream_url,
+                    "-c", "copy",
+                    "-t", "45",
+                    str(tmp_out)
+                ]
+                proc = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=40)
+                if proc.returncode == 0 and tmp_out.exists() and tmp_out.stat().st_size > 10000:
+                    tmp_out.rename(out_path)
+                    logger.info("✅ Saved native event video clip: %s (%d bytes)", out_path.name, out_path.stat().st_size)
+                    with self.lock:
+                        for e in self.events:
+                            if e["alarm_id"] == ev_id:
+                                e["local_video"] = True
+                                break
+                else:
+                    if tmp_out.exists():
+                        tmp_out.unlink()
+                    logger.warning("Could not download MP4 clip for event %s (code %s)", ev_id, proc.returncode)
+
+                time.sleep(2) # Throttle to prevent cloud rate limits
+        except Exception as e:
+            logger.error("Event video processor error: %s", e)
 
     def get_all(self):
         with self.lock:
@@ -386,6 +463,7 @@ def _on_ezviz_push_message(msg):
             # Add direct video endpoints
             attr_data["image_url"] = ingress_url(f"/api/events/image/{ev_id}")
             attr_data["video_url"] = ingress_url(f"/api/events/video/{ev_id}")
+            attr_data["clip_url"] = ingress_url(f"/api/events/clip/{ev_id}")
             attr_data["player_url"] = ingress_url(f"/player?alarm_id={ev_id}")
 
             # Shorten long URLs to prevent Home Assistant >255 char state errors
@@ -874,6 +952,16 @@ def api_event_image(alarm_id):
     if filepath.exists():
         return send_file(filepath, mimetype="image/jpeg")
     return jsonify({"error": "Image not found locally"}), 404
+
+
+@app.route("/api/events/clip/<alarm_id>")
+def api_event_clip(alarm_id):
+    """Serve a locally-downloaded event MP4 video clip."""
+    filename = f"video_{alarm_id}.mp4"
+    filepath = EVENT_VIDEO_PATH / filename
+    if filepath.exists() and filepath.stat().st_size > 10000:
+        return send_file(filepath, mimetype="video/mp4", as_attachment=False)
+    return jsonify({"error": "Video clip not downloaded or still processing"}), 404
 
 
 @app.route("/api/events/video/<alarm_id>")

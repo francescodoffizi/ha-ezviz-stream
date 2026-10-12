@@ -13,7 +13,8 @@ RUN apk add --no-cache \
     musl-dev \
     python3-dev \
     curl \
-    tzdata
+    tzdata \
+    ffmpeg
 
 # Install Python dependencies
 COPY rootfs/app/requirements.txt /app/requirements.txt

@@ -57,3 +57,9 @@ configuration:
       Home Assistant MQTT broker. Requires MQTT to be configured in HA.
       Event topics: homeassistant/camera/ezviz/{serial}/motion and
       homeassistant/camera/ezviz/{serial}/doorbell.
+  save_event_clips:
+    name: Save Event Video Clips (MP4)
+    description: >-
+      When enabled, the add-on automatically downloads and archives high-definition
+      MP4 video clips for each detected event (doorbell/motion) directly on disk using ffmpeg.
+      Available for download or viewing at /api/events/clip/<alarm_id>.
