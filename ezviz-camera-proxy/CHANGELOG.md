@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.7] — 2026-10-12
+
+### Fixed & Improved
+- **Finestra di Wake-Up Estesa (25s)**: Aumentata la soglia di tolleranza di risveglio della telecamera HP2 da deep sleep fino a 25 secondi nell'endpoint `/api/live/stream.m3u8`. Il redirect verso Home Assistant viene rilasciato rigorosamente solo quando i segmenti video reali `.ts` sono pronti e riproducibili, impedendo ad Home Assistant di andare in timeout precoce.
+- **Log Dettagliati di Stato Risveglio**: Aggiunto tracciamento al secondo del ciclo di wake-up con dimensione della playlist generata.
+
+---
+
 ## [1.7.6] — 2026-10-12
 
 ### Fixed & Improved

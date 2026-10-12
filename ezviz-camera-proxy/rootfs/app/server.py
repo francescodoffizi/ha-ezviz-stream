@@ -1066,29 +1066,28 @@ def api_live_hls():
         if not stream_url:
             return jsonify({"error": "Could not obtain live HLS stream from Ezviz"}), 502
 
-        # Verify that camera is awake and stream is ready (wait up to 14 seconds if waking up from sleep)
-        for attempt in range(8):
+        # Verify that camera is awake and stream is ready (wait up to 25 seconds for battery deep sleep)
+        for attempt in range(15):
             try:
-                check_resp = requests.get(stream_url, timeout=4, verify=False, allow_redirects=True)
+                check_resp = requests.get(stream_url, timeout=5, verify=False, allow_redirects=True)
                 content = check_resp.text or ""
-                # If stream contains valid .ts segments and NO ErrCode (e.g. 5405/6519 wake-up) and NO EXT-X-ENDLIST
                 is_err = "ErrCode" in content or "EXT-X-ENDLIST" in content
                 has_ts = ".ts" in content
 
                 if check_resp.status_code == 200 and has_ts and not is_err:
-                    logger.info("⚡ Live HLS stream is awake and ready on attempt %d", attempt + 1)
+                    logger.info("⚡ Live HLS stream is awake and ready on attempt %d (%d bytes playlist)", attempt + 1, len(content))
                     return redirect(stream_url)
                 elif is_err:
-                    logger.info("⚡ Camera is still waking up (attempt %d/8)... waiting 1.8s", attempt + 1)
-                    time.sleep(1.8)
+                    logger.info("⚡ Camera wake-up in progress (attempt %d/15)... waiting 1.5s", attempt + 1)
+                    time.sleep(1.5)
                 else:
-                    time.sleep(1.2)
+                    logger.info("⚡ Waiting for video frames (attempt %d/15)...", attempt + 1)
+                    time.sleep(1.5)
             except Exception as ce:
-                logger.debug("HLS pre-check exception (attempt %d): %s", attempt + 1, ce)
-                time.sleep(1.2)
+                logger.info("HLS pre-check waiting (attempt %d/15): %s", attempt + 1, ce)
+                time.sleep(1.5)
 
-        # If after 8 attempts it's still not ready, do one last check
-        logger.warning("Camera did not wake up in time or stream still initializing. Serving redirect anyway as best effort.")
+        logger.warning("Camera wake-up timed out after 25s. Serving redirect as last resort.")
         return redirect(stream_url)
     except Exception as e:
         logger.error("Error generating live HLS stream: %s", e)
