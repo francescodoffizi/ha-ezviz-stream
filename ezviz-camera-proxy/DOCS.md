@@ -138,20 +138,35 @@ Quando `enable_mqtt_events: true` è attivo, l'add-on pubblica messaggi su:
 - `homeassistant/camera/ezviz/<serial>/doorbell` — Quando viene premuto il campanello
 - `homeassistant/camera/ezviz/<serial>/motion`   — Quando viene rilevato un movimento
 
-Esempio di automazione:
+### Aggiungere come Telecamera Video HLS in HA
+
+Puoi aggiungere il flusso video HLS nativo sia come telecamera generica che visualizzarlo con la card **WebRTC / HLS / Picture Glance** di Home Assistant:
+
+```yaml
+camera:
+  - platform: generic
+    name: "Spioncino HP2 (HLS)"
+    still_image_url: "http://localhost:8099/api/snapshot"
+    stream_source: "http://localhost:8099/api/live/stream.m3u8"
+```
+
+Esempio di automazione per notifica con video dell'evento:
 
 ```yaml
 automation:
-  - alias: "Notifica Campanello HP2"
+  - alias: "Notifica Campanello HP2 con Video"
     trigger:
       - platform: mqtt
-        topic: "homeassistant/camera/ezviz/AB1234567/doorbell"
+        topic: "homeassistant/binary_sensor/ezviz_BH9350432_doorbell/state"
+        to: "ON"
     action:
-      - service: notify.mobile_app_tuo_telefono
+      - service: notify.notify
         data:
+          title: "Campanello Spioncino"
           message: "Qualcuno ha suonato alla porta!"
           data:
-            image: "/api/camera_proxy/camera.spioncino_hp2_stream"
+            url: "{{ trigger.payload_json.player_url if trigger.payload_json is defined else '/api/hassio_ingress/ezviz-camera-proxy/player?live=true' }}"
+            clickAction: "/api/hassio_ingress/ezviz-camera-proxy/player?live=true"
 ```
 
 ---
@@ -160,7 +175,11 @@ automation:
 
 | Endpoint | Metodo | Descrizione |
 |----------|--------|-------------|
-| `/` | GET | Dashboard Web |
+| `/` | GET | Dashboard Web interattiva con visualizzatore snapshot ed eventi |
+| `/player` | GET | Web Player HTML5 HLS universale (`?alarm_id=<id>` o `?live=true`) |
+| `/api/live/stream.m3u8` | GET | Reindirizzamento al flusso video HLS nativo HD live |
+| `/api/events/video/<alarm_id>` | GET | Reindirizzamento al flusso video HLS dell'evento registrato su MicroSD |
+| `/api/events/image/<alarm_id>` | GET | Istantanea JPEG salvata localmente per l'evento |
 | `/api/snapshot` | GET | Istantanea JPEG corrente |
 | `/api/snapshot/refresh` | GET/POST | Forza un nuovo snapshot dal Cloud |
 | `/api/status` | GET | Stato fotocamera in formato JSON |
@@ -168,6 +187,7 @@ automation:
 | `/api/stream` | GET | Flusso MJPEG simulato |
 | `/api/devices` | GET | Tutti i dispositivi dell'account |
 | `/api/health` | GET | Controllo di stato dell'add-on |
+
 
 ---
 
