@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.9] — 2026-10-12
+
+### Fixed & Improved
+- **Risolto `import requests` in server.py**: Ripristinato l'import di `requests` nel ciclo di polling dell'endpoint `/api/live/stream.m3u8` che causava l'eccezione `NameError: name 'requests' is not defined` durante la verifica del risveglio telecamera.
+
+---
+
 ## [1.7.8] — 2026-10-12
 
 ### Fixed & Improved
