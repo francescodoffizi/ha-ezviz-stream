@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.3] — 2026-10-12
+
+### Fixed & Improved
+- **Download Clip MP4 On-Demand & Feedback Interattivo**: Risolto il problema del download di file da 58 byte (che corrispondeva al messaggio JSON di clip non ancora elaborata). Il pulsante "MP4" ora gestisce il download in modo intelligente: se il file non è ancora salvato in locale, attiva la generazione on-demand via FFmpeg con spinner e notifica di avanzamento, scaricando il vero file MP4 senza errori.
+- **Parametri FFmpeg Ottimizzati**: Aggiunti socket timeout (`-timeout 15000000`) e `-movflags +faststart` per prevenire blocchi o corruzioni durante il fetch dei segmenti HLS da Ezviz Cloud.
+- **Nuovo Riproduttore Cronologia (Slideshow)**: Sostituito il fragile stream MJPEG del browser con uno slideshow client-side fluido e reattivo che scorre le istantanee salvate in ordine cronologico con contatore dei frame (`1/N`) e passaggio immediato tra Live e Cronologia.
+
+---
+
 ## [1.7.2] — 2026-10-12
 
 ### Fixed

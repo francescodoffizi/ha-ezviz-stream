@@ -229,6 +229,84 @@ class EventStore:
         except Exception as e:
             logger.error("Event image processor failed: %s", e)
 
+    def generate_clip(self, alarm_id: str) -> bool:
+        """Generate MP4 clip for a specific event on-demand via ffmpeg."""
+        if not shutil.which("ffmpeg"):
+            logger.warning("ffmpeg not found, cannot generate clip")
+            return False
+
+        out_path = EVENT_VIDEO_PATH / f"video_{alarm_id}.mp4"
+        if out_path.exists() and out_path.stat().st_size > 10000:
+            return True
+
+        event = None
+        with self.lock:
+            for e in self.events:
+                if str(e.get("alarm_id")) == str(alarm_id):
+                    event = e
+                    break
+
+        if not event:
+            logger.warning("Event %s not found in store for clip generation", alarm_id)
+            return False
+
+        ev_time = event.get("alarm_time")
+        if not ev_time:
+            return False
+
+        try:
+            ev_dt = datetime.strptime(ev_time, "%Y-%m-%d %H:%M:%S")
+            start_str = (ev_dt - timedelta(seconds=10)).strftime("%Y-%m-%d %H:%M:%S")
+            stop_str = (ev_dt + timedelta(seconds=35)).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception as te:
+            logger.warning("Error parsing event time '%s': %s", ev_time, te)
+            return False
+
+        client = get_client()
+        stream_url = client.get_hls_stream_url(start_time=start_str, stop_time=stop_str)
+        if not stream_url:
+            logger.warning("Could not obtain HLS stream URL for event %s", alarm_id)
+            return False
+
+        logger.info("⚡ Generating MP4 clip on-demand for event %s...", alarm_id)
+        tmp_out = EVENT_VIDEO_PATH / f"tmp_{alarm_id}.mp4"
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-timeout", "15000000",
+            "-i", stream_url,
+            "-c", "copy",
+            "-movflags", "+faststart",
+            "-t", "45",
+            str(tmp_out)
+        ]
+        try:
+            proc = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45)
+            if proc.returncode == 0 and tmp_out.exists() and tmp_out.stat().st_size > 10000:
+                tmp_out.rename(out_path)
+                logger.info("✅ Successfully generated native event video clip: %s (%d bytes)", out_path.name, out_path.stat().st_size)
+                with self.lock:
+                    for e in self.events:
+                        if str(e.get("alarm_id")) == str(alarm_id):
+                            e["local_video"] = True
+                            break
+                return True
+            else:
+                if tmp_out.exists():
+                    tmp_out.unlink()
+                logger.warning("FFmpeg finished with code %s for event %s", proc.returncode, alarm_id)
+                return False
+        except subprocess.TimeoutExpired:
+            if tmp_out.exists():
+                tmp_out.unlink()
+            logger.warning("FFmpeg timed out downloading clip for event %s", alarm_id)
+            return False
+        except Exception as fe:
+            if tmp_out.exists():
+                tmp_out.unlink()
+            logger.error("FFmpeg error on event %s: %s", alarm_id, fe)
+            return False
+
     def _process_videos(self):
         """Download MP4 clips for recent events using ffmpeg from their HLS stream."""
         if not shutil.which("ffmpeg"):
@@ -238,7 +316,7 @@ class EventStore:
         try:
             with self.lock:
                 to_process = [e for e in self.events if not e.get("local_video")]
-            
+
             for ev in to_process:
                 ev_id = ev["alarm_id"]
                 out_path = EVENT_VIDEO_PATH / f"video_{ev_id}.mp4"
@@ -247,45 +325,7 @@ class EventStore:
                         ev["local_video"] = True
                     continue
 
-                ev_time = ev.get("alarm_time")
-                if not ev_time: continue
-
-                try:
-                    ev_dt = datetime.strptime(ev_time, "%Y-%m-%d %H:%M:%S")
-                    start_str = (ev_dt - timedelta(seconds=10)).strftime("%Y-%m-%d %H:%M:%S")
-                    stop_str = (ev_dt + timedelta(seconds=35)).strftime("%Y-%m-%d %H:%M:%S")
-                except: continue
-
-                client = get_client()
-                stream_url = client.get_hls_stream_url(start_time=start_str, stop_time=stop_str)
-                if not stream_url:
-                    continue
-
-                logger.info("⚡ Downloading native MP4 clip for event %s via ffmpeg...", ev_id)
-                tmp_out = EVENT_VIDEO_PATH / f"tmp_{ev_id}.mp4"
-                
-                # Execute ffmpeg with stream copy (-c copy)
-                cmd = [
-                    "ffmpeg", "-y",
-                    "-i", stream_url,
-                    "-c", "copy",
-                    "-t", "45",
-                    str(tmp_out)
-                ]
-                proc = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=40)
-                if proc.returncode == 0 and tmp_out.exists() and tmp_out.stat().st_size > 10000:
-                    tmp_out.rename(out_path)
-                    logger.info("✅ Saved native event video clip: %s (%d bytes)", out_path.name, out_path.stat().st_size)
-                    with self.lock:
-                        for e in self.events:
-                            if e["alarm_id"] == ev_id:
-                                e["local_video"] = True
-                                break
-                else:
-                    if tmp_out.exists():
-                        tmp_out.unlink()
-                    logger.warning("Could not download MP4 clip for event %s (code %s)", ev_id, proc.returncode)
-
+                self.generate_clip(ev_id)
                 time.sleep(2) # Throttle to prevent cloud rate limits
         except Exception as e:
             logger.error("Event video processor error: %s", e)
@@ -940,6 +980,8 @@ def api_events():
         pic_url = clean_ev.get("alarm_pic_url", "")
         if pic_url and len(pic_url) > 200:
             clean_ev["alarm_pic_url"] = ingress_url(f"/api/events/image/{ev['alarm_id']}")
+        v_file = EVENT_VIDEO_PATH / f"video_{ev['alarm_id']}.mp4"
+        clean_ev["local_video"] = v_file.exists() and v_file.stat().st_size > 10000
         clean_events.append(clean_ev)
         
     return jsonify({
@@ -961,12 +1003,26 @@ def api_event_image(alarm_id):
 
 @app.route("/api/events/clip/<alarm_id>")
 def api_event_clip(alarm_id):
-    """Serve a locally-downloaded event MP4 video clip."""
+    """Serve a locally-downloaded event MP4 video clip, generating on-demand if requested."""
     filename = f"video_{alarm_id}.mp4"
     filepath = EVENT_VIDEO_PATH / filename
+    
+    # 1. If clip already exists and is valid, return it as attachment
     if filepath.exists() and filepath.stat().st_size > 10000:
-        return send_file(filepath, mimetype="video/mp4", as_attachment=False)
-    return jsonify({"error": "Video clip not downloaded or still processing"}), 404
+        return send_file(filepath, mimetype="video/mp4", as_attachment=True, download_name=f"event_{alarm_id}.mp4")
+    
+    # 2. Check query parameter: generate=true or check=true
+    check_only = request.args.get("check", "false").lower() == "true"
+    if check_only:
+        return jsonify({"ready": False, "status": "processing"}), 200
+
+    # 3. Trigger on-demand generation synchronously or in background
+    logger.info("⚡ On-demand clip request for alarm %s", alarm_id)
+    success = _event_store.generate_clip(alarm_id)
+    if success and filepath.exists() and filepath.stat().st_size > 10000:
+        return send_file(filepath, mimetype="video/mp4", as_attachment=True, download_name=f"event_{alarm_id}.mp4")
+
+    return jsonify({"error": "Video clip not available on camera or still processing", "ready": False}), 404
 
 
 @app.route("/api/events/video/<alarm_id>")

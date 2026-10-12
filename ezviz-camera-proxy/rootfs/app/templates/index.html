@@ -369,14 +369,14 @@
                   Video
                 </button>
 
-                <a href="{{ ingress_url('/api/events/clip/' ~ event.alarm_id) }}" target="_blank" download="event_{{ event.alarm_id }}.mp4"
+                <button onclick="downloadClip('{{ event.alarm_id }}', this)"
                    class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1"
-                   style="background:#059669; color:white; border-radius:4px; text-decoration:none;">
+                   style="background:#059669; color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;">
                   <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
-                  MP4
-                </a>
+                  <span>MP4</span>
+                </button>
 
                 {% if img_url %}
                 <button onclick="showImageModal('{{ img_url }}')"
@@ -595,52 +595,74 @@
     }
 
     // -----------------------------------------------------------------------
-    // History Playback
+    // History Playback (Client-side Slideshow)
     // -----------------------------------------------------------------------
     let historyMode = false;
-    
+    let historyInterval = null;
+    let historyImages = [];
+    let historyIndex = 0;
+
     function toggleHistory() {
-      const container = document.getElementById('stream-img').parentElement;
-      const oldImg = document.getElementById('stream-img');
+      const img = document.getElementById('stream-img');
       const btn = document.getElementById('history-btn');
       const badge = document.getElementById('mode-badge');
       
       historyMode = !historyMode;
       
-      // Force re-create image element to reset MJPEG stream state in browser
-      const newImg = document.createElement('img');
-      newImg.id = 'stream-img';
-      newImg.className = oldImg.className;
-      newImg.alt = "Camera snapshot or history";
-      newImg.onerror = function() {
-          console.error('⚡ MJPEG Load Error:', newImg.src);
-          // If we were in history mode and it failed, maybe the stream is broken
-          if (historyMode) {
-              console.warn('History playback failed, showing fallback.');
-          }
-          this.onerror = null; // prevents infinite loop
-          this.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23222'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%23666' font-family='sans-serif' font-size='10'%3ENessuna immagine disponibile%3C/text%3E%3C/svg%3E";
-      };
-      
       if (historyMode) {
-          btn.innerHTML = t('Stop History');
-          btn.style.background = 'var(--ha-danger)';
-          badge.textContent = t('History Playback');
-          badge.className = 'badge badge-motion text-[10px]';
-          
-          newImg.src = url('/api/stream?history=true');
-          showToast('Playing snapshot history...');
+          // Fetch events to get all available snapshot URLs
+          fetch(url('/api/events'))
+            .then(r => r.json())
+            .then(data => {
+                const list = (data.events || [])
+                    .filter(e => e.local_pic || e.alarm_pic_url)
+                    .map(e => e.local_pic ? url('/api/events/image/' + e.alarm_id) : e.alarm_pic_url);
+
+                if (!list.length) {
+                    showToast('Nessuna istantanea presente nella cronologia', 'error');
+                    historyMode = false;
+                    return;
+                }
+
+                historyImages = list.reverse(); // Chronological order
+                historyIndex = 0;
+
+                btn.innerHTML = t('Stop History');
+                btn.style.background = 'var(--ha-danger)';
+                badge.textContent = t('History Playback') + ` (1/${historyImages.length})`;
+                badge.className = 'badge badge-motion text-[10px]';
+
+                showToast(`Riproduzione cronologia (${historyImages.length} fotogrammi)...`);
+
+                // Display first frame immediately
+                img.src = historyImages[historyIndex];
+
+                // Cycle every 1.2 seconds
+                clearInterval(historyInterval);
+                historyInterval = setInterval(() => {
+                    historyIndex = (historyIndex + 1) % historyImages.length;
+                    img.src = historyImages[historyIndex];
+                    badge.textContent = t('History Playback') + ` (${historyIndex + 1}/${historyImages.length})`;
+                }, 1200);
+            })
+            .catch(err => {
+                console.error("History fetch error:", err);
+                showToast('Errore nel caricamento della cronologia', 'error');
+                historyMode = false;
+            });
+
       } else {
+          clearInterval(historyInterval);
+          historyInterval = null;
+
           btn.innerHTML = t('Play History');
           btn.style.background = 'var(--ha-warning)';
           badge.textContent = t('Live');
           badge.className = 'badge badge-other text-[10px]';
           
-          newImg.src = url('/api/snapshot?t=' + Date.now());
-          showToast('Returned to Live view');
+          img.src = url('/api/snapshot?t=' + Date.now());
+          showToast('Tornato alla vista Live');
       }
-      
-      container.replaceChild(newImg, oldImg);
     }
 
     // -----------------------------------------------------------------------
@@ -769,14 +791,14 @@
                   </svg>
                   Video
                 </button>
-                <a href="${url('/api/events/clip/' + e.alarm_id)}" target="_blank" download="event_${e.alarm_id}.mp4"
+                <button onclick="downloadClip('${e.alarm_id}', this)"
                    class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1"
-                   style="background:#059669; color:white; border-radius:4px; text-decoration:none;">
+                   style="background:#059669; color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;">
                   <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
-                  MP4
-                </a>
+                  <span>MP4</span>
+                </button>
                 ${imgUrl ? `
                   <button onclick="showImageModal('${imgUrl}')" 
                      class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1" 
@@ -827,14 +849,71 @@
         const modalImg = document.getElementById('modal-img');
         modalImg.src = src;
         modal.classList.add('show');
-        document.body.style.overflow = 'hidden'; // Stop scrolling
+        document.body.style.overflow = 'hidden';
     }
+
     function hideImageModal() {
         const modal = document.getElementById('image-modal');
         const modalImg = document.getElementById('modal-img');
         modalImg.src = ''; // Stop stream download
         modal.classList.remove('show');
         document.body.style.overflow = '';
+    }
+
+    // -----------------------------------------------------------------------
+    // Clip Download
+    // -----------------------------------------------------------------------
+    async function downloadClip(alarmId, btnElement) {
+        if (!alarmId) return;
+
+        const originalText = btnElement ? btnElement.innerHTML : '';
+        if (btnElement) {
+            btnElement.disabled = true;
+            btnElement.style.opacity = '0.7';
+            btnElement.innerHTML = `
+              <svg class="animate-spin w-3 h-3 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <span>...</span>
+            `;
+        }
+
+        showToast('Preparazione clip video in corso... attendere 10-15s');
+
+        try {
+            const clipUrl = url('/api/events/clip/' + encodeURIComponent(alarmId));
+            const resp = await fetch(clipUrl);
+            
+            const contentType = resp.headers.get("content-type") || "";
+            if (resp.ok && contentType.includes("video")) {
+                const blob = await resp.blob();
+                const a = document.createElement('a');
+                a.href = window.URL.createObjectURL(blob);
+                a.download = `event_${alarmId}.mp4`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(a.href);
+                showToast('Download completato!');
+            } else {
+                let errText = "Video clip non ancora pronto o telecamera non raggiungibile";
+                try {
+                    const data = await resp.json();
+                    if (data.error) errText = data.error;
+                } catch(e) {}
+                showToast(errText, 'error');
+            }
+        } catch (err) {
+            console.error("Download clip error:", err);
+            showToast('Errore durante il download del video', 'error');
+        } finally {
+            if (btnElement) {
+                btnElement.disabled = false;
+                btnElement.style.opacity = '1';
+                btnElement.innerHTML = originalText;
+            }
+        }
     }
 
     // -----------------------------------------------------------------------
