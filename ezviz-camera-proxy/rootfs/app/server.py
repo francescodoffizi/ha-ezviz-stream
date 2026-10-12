@@ -395,6 +395,7 @@ def get_client() -> EzvizClient:
                 app_secret=EZVIZ_APP_SECRET,
                 access_token=EZVIZ_ACCESS_TOKEN,
                 token_cache_path=str(DATA_PATH / "open_token.json"),
+                session_cache_path=str(DATA_PATH / "cloud_session.json"),
             )
         return _client
 

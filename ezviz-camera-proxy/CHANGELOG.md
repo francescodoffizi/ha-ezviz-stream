@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.8] — 2026-10-12
+
+### Fixed & Improved
+- **Persistenza Sessione Cloud Ezviz (`cloud_session.json`)**: Risolto il problema per cui a ogni riavvio dell'add-on veniva generata una nuova coppia di chiavi d'accesso/dispositivo registrato sull'app Ezviz. La sessione utente (`sessionId` e `rfSessionId`) ora viene salvata in modo persistente su `/data/cloud_session.json` e riutilizzata tramite `refreshSessionId`, evitando nuovi login completi da zero.
+
+---
+
 ## [1.7.7] — 2026-10-12
 
 ### Fixed & Improved

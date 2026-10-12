@@ -62,6 +62,7 @@ class EzvizClient:
         app_secret: str = "",
         access_token: str = "",
         token_cache_path: str = "/data/open_token.json",
+        session_cache_path: str = "/data/cloud_session.json",
     ):
         self.username = username
         self.password = password
@@ -74,19 +75,49 @@ class EzvizClient:
         self.app_secret = app_secret
         self.access_token = access_token
         self.token_cache_path = Path(token_cache_path)
+        self.session_cache_path = Path(session_cache_path)
 
         self._client = None  # pyezvizapi.EzvizClient instance
         self._lock = threading.Lock()
         self._last_login: datetime | None = None
         self._open_token_expire_time: float = 0
+        self._cached_session: dict | None = None
 
-        # Load existing cached Open Platform token from disk if valid
+        # Load existing cached Open Platform token & Cloud session from disk
         self._load_cached_token()
+        self._load_cached_session()
 
         # Cached data from last successful pagelist fetch
         self._cached_device_data: dict = {}
         self._cached_status: dict = {}
         self._logged_structure = False
+
+    def _load_cached_session(self):
+        """Load saved Ezviz Cloud login session (sessionId, rfSessionId) to avoid new logins."""
+        try:
+            if self.session_cache_path.exists():
+                data = json.loads(self.session_cache_path.read_text())
+                if data.get("session_id") and data.get("rf_session_id"):
+                    self._cached_session = data
+                    logger.info("Loaded Ezviz Cloud session from persistent cache (%s)", self.session_cache_path)
+        except Exception as e:
+            logger.warning("Could not read session cache from %s: %s", self.session_cache_path, e)
+
+    def _save_cached_session(self, token_dict: dict):
+        """Save Ezviz Cloud login session to disk."""
+        try:
+            self.session_cache_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "session_id": token_dict.get("session_id"),
+                "rf_session_id": token_dict.get("rf_session_id"),
+                "username": token_dict.get("username"),
+                "api_url": token_dict.get("api_url", self.region),
+                "savedAt": time.time(),
+            }
+            self.session_cache_path.write_text(json.dumps(payload))
+            logger.info("Saved Ezviz Cloud session to persistent cache: %s", self.session_cache_path)
+        except Exception as e:
+            logger.warning("Could not save session cache to %s: %s", self.session_cache_path, e)
 
     def _load_cached_token(self):
         """Load Open Platform AccessToken and expiry from disk cache."""
@@ -219,14 +250,38 @@ class EzvizClient:
 
         logger.info("Authenticating with Ezviz Cloud (%s)...", self.region)
         try:
+            # 1. Try to reuse or refresh cached session if available
+            if self._cached_session and self._cached_session.get("session_id"):
+                try:
+                    logger.info("Attempting session resumption with cached token...")
+                    client = _EzvizClient(
+                        account=self.username,
+                        password=self.password,
+                        url=self.region,
+                        token=self._cached_session,
+                    )
+                    tok = client.login()
+                    if tok and tok.get("session_id"):
+                        self._client = client
+                        self._last_login = datetime.now(timezone.utc)
+                        self._save_cached_session(tok)
+                        logger.info("Ezviz session restored and refreshed successfully (no new login device created)")
+                        return True
+                except Exception as re:
+                    logger.warning("Session resumption failed (%s), performing clean login...", re)
+                    self._cached_session = None
+
+            # 2. Full login with credentials
             client = _EzvizClient(
                 account=self.username,
                 password=self.password,
                 url=self.region,
             )
-            client.login()
+            tok = client.login()
             self._client = client
             self._last_login = datetime.now(timezone.utc)
+            if tok and isinstance(tok, dict):
+                self._save_cached_session(tok)
             logger.info("Ezviz authentication successful")
             return True
 
