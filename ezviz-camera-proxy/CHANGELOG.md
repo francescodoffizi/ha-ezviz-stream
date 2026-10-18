@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed & Improved
+- **Riproduzione e Download Video Eventi Reali — Stop Redirect alla Vista Live (`server.py`, `templates/index.html`)**:
+  - **Root Cause**: L'API Ezviz Open Platform (`/api/lapp/v2/live/address/get` con `protocol=2` HLS) per lo spioncino a batteria CS-HP2 ignora `type=2` e `startTime`/`stopTime`, restituendo sempre l'URL del flusso **Live** (`/v3/openlive/...`). Di conseguenza:
+    1. L'endpoint `/api/events/video/<alarm_id>` e il player `/player?alarm_id=...` aprivano sempre la vista Live invece del file `/data/videos/video_<alarm_id>.mp4` registrato su disco.
+    2. Il callback push usava l'ID numerico `msg["id"]` (`211186...`) mentre il polling cloud usava `ext["msgId"]` (`MVE...`), disallineando il nome dei file `.mp4` registrati durante l'evento rispetto alla lista eventi.
+    3. `generate_clip()` registrava 45s dal flusso Live anche quando veniva invocata ore dopo l'evento (es. al riavvio dell'add-on o al click su `MP4`), producendo clip con il timestamp sbagliato.
+  - **Soluzione**:
+    - Unificato l'`alarm_id` tra push (`ext["msgId"]`) e polling cloud (`MVE...`), con riconciliazione automatica su disco delle clip genuine registrate con ID numerico e rimozione automatica delle clip postume registrate dal flusso Live (`mtime - alarm_time > 180s`).
+    - Avvio immediato della cattura `ffmpeg` (30s con lock per-evento e pre-check dei segmenti `.ts`) all'arrivo del push, bloccando rigorosamente qualsiasi generazione postuma per eventi più vecchi di 120 secondi.
+    - `/api/events/video/<alarm_id>`, `/api/events/clip/<alarm_id>` e `/player?alarm_id=<alarm_id>` servono e riproducono esclusivamente il file MP4 locale dell'evento (senza mai reindirizzare al flusso Live); nella dashboard i pulsanti `Video` e `MP4` compaiono solo per gli eventi dotati di registrazione reale (`Solo Foto` per gli altri).
 - **Sincronizzazione Immediata Immagine Evento Push Prima della Notifica MQTT (`server.py`)**:
   - Risolto il bug in `_on_ezviz_push_message` per cui l'URL dell'immagine allegata al push real-time Ezviz (`ext["image"]`) veniva ignorato perché cercato solo al livello radice (`msg.get("image")`), ritardando il download di `event_<id>.jpg` di oltre 10 secondi e facendo inviare a Home Assistant l'immagine dell'evento precedente.
   - Il download dell'immagine dell'evento da `ext["image"]` (con fino a 4 tentativi rapidi) e il salvataggio sia su `/data/snapshots/events/event_<id>.jpg` (`local_pic = True`) sia su `/data/snapshots/current.jpg` (`/api/snapshot`) avvengono ora **prima** della pubblicazione di `ON` sul topic MQTT di Home Assistant.

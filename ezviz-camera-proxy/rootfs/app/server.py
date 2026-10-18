@@ -89,6 +89,68 @@ class EventStore:
         self.max_size = max_size
         self.events = []
         self.lock = threading.Lock()
+        self.clip_locks: dict[str, threading.Lock] = {}
+
+    def _get_clip_lock(self, alarm_id: str) -> threading.Lock:
+        with self.lock:
+            if alarm_id not in self.clip_locks:
+                self.clip_locks[alarm_id] = threading.Lock()
+            return self.clip_locks[alarm_id]
+
+    @staticmethod
+    def event_age_seconds(alarm_time: str) -> float:
+        if not alarm_time:
+            return 999999.0
+        try:
+            ev_dt = datetime.strptime(alarm_time, "%Y-%m-%d %H:%M:%S")
+            return (datetime.now() - ev_dt).total_seconds()
+        except Exception:
+            return 999999.0
+
+    def is_valid_video(self, v_path: Path, alarm_time: str = "") -> bool:
+        """Return True only if the MP4 exists, is non-empty, and was recorded during the event window."""
+        try:
+            if not v_path.exists() or v_path.stat().st_size <= 10000:
+                return False
+            if not alarm_time:
+                ev_id = v_path.name[6:-4]
+                for e in self.events:
+                    if str(e.get("alarm_id")) == str(ev_id):
+                        alarm_time = e.get("alarm_time", "")
+                        break
+            if alarm_time:
+                ev_dt = datetime.strptime(alarm_time, "%Y-%m-%d %H:%M:%S")
+                mtime_dt = datetime.fromtimestamp(v_path.stat().st_mtime)
+                delay = (mtime_dt - ev_dt).total_seconds()
+                # Genuine event clips are recorded within [-30s, +180s] of alarm_time.
+                # Clips with delay > 180s were recorded posthumously from the live stream.
+                if delay < -30 or delay > 180:
+                    return False
+            return True
+        except Exception:
+            return False
+
+    def _reconcile_legacy_videos(self):
+        """Migrate genuine clips recorded under numeric push IDs to canonical MVE IDs and purge posthumous live clips."""
+        try:
+            all_mp4s = list(EVENT_VIDEO_PATH.glob("video_*.mp4"))
+            for e in self.events:
+                ev_id = str(e["alarm_id"])
+                ev_time = e.get("alarm_time", "")
+                target_v = EVENT_VIDEO_PATH / f"video_{ev_id}.mp4"
+                if not self.is_valid_video(target_v, ev_time) and ev_time:
+                    for cand in all_mp4s:
+                        if cand == target_v or not cand.exists():
+                            continue
+                        if self.is_valid_video(cand, ev_time):
+                            st = cand.stat()
+                            cand.replace(target_v)
+                            os.utime(target_v, (st.st_atime, st.st_mtime))
+                            logger.info("Migrated genuine event clip %s -> %s", cand.name, target_v.name)
+                            break
+                e["local_video"] = self.is_valid_video(target_v, ev_time)
+        except Exception as e:
+            logger.error("Video reconciliation error: %s", e)
 
     def add_events(self, new_events: list[dict], download_images=True):
         """Merge new events into the store, deduplicating with fuzzy time matching."""
@@ -128,6 +190,7 @@ class EventStore:
                                     break
                     except: pass
 
+                v_path = EVENT_VIDEO_PATH / f"video_{ev_id}.mp4"
                 normalized = {
                     "alarm_id": ev_id,
                     "alarm_type": ev_type,
@@ -135,12 +198,33 @@ class EventStore:
                     "alarm_pic_url": event.get("alarm_pic_url") or event.get("pic_url") or "",
                     "is_push": event.get("is_push", False),
                     "local_pic": event.get("local_pic", False) or (EVENT_SNAPSHOT_PATH / f"event_{ev_id}.jpg").exists(),
-                    "local_video": event.get("local_video", (EVENT_VIDEO_PATH / f"video_{ev_id}.mp4").exists()),
+                    "local_video": self.is_valid_video(v_path, ev_time),
                     "device_serial": event.get("device_serial", CAMERA_SERIAL)
                 }
 
                 if match_idx is not None:
                     old = self.events[match_idx]
+                    old_id = str(old["alarm_id"])
+                    # Prefer canonical MVE... alarm_id if the existing record used a numeric/push fallback ID
+                    if old_id != ev_id and ev_id.startswith("MVE") and not old_id.startswith("MVE"):
+                        old_img = EVENT_SNAPSHOT_PATH / f"event_{old_id}.jpg"
+                        new_img = EVENT_SNAPSHOT_PATH / f"event_{ev_id}.jpg"
+                        if old_img.exists() and not new_img.exists():
+                            try:
+                                old_img.replace(new_img)
+                            except Exception:
+                                pass
+                        old_vid = EVENT_VIDEO_PATH / f"video_{old_id}.mp4"
+                        new_vid = EVENT_VIDEO_PATH / f"video_{ev_id}.mp4"
+                        if old_vid.exists() and not new_vid.exists():
+                            try:
+                                st = old_vid.stat()
+                                old_vid.replace(new_vid)
+                                os.utime(new_vid, (st.st_atime, st.st_mtime))
+                            except Exception:
+                                pass
+                        old["alarm_id"] = ev_id
+
                     # Merge: prefer better type
                     generic_codes = ["10120", "12663", "event", "alarm"]
                     is_gen = lambda t: str(t).lower() in generic_codes or str(t).isdigit()
@@ -153,8 +237,8 @@ class EventStore:
                     if normalized["alarm_pic_url"]: old["alarm_pic_url"] = normalized["alarm_pic_url"]
                     if normalized["local_pic"] or (EVENT_SNAPSHOT_PATH / f"event_{old['alarm_id']}.jpg").exists():
                         old["local_pic"] = True
-                    if (EVENT_VIDEO_PATH / f"video_{old['alarm_id']}.mp4").exists():
-                        old["local_video"] = True
+                    cur_vid = EVENT_VIDEO_PATH / f"video_{old['alarm_id']}.mp4"
+                    old["local_video"] = self.is_valid_video(cur_vid, old.get("alarm_time", ""))
                 else:
                     self.events.append(normalized)
 
@@ -173,7 +257,8 @@ class EventStore:
                         _last_doorbell_time = e["alarm_time"]
                         break
             
-            # Prune old images and videos from disk
+            # Reconcile any genuine numeric-ID clips and prune invalid/old files from disk
+            self._reconcile_legacy_videos()
             self._prune_disk()
             
         if download_images:
@@ -182,13 +267,13 @@ class EventStore:
                 threading.Thread(target=self._process_videos, daemon=True, name="event-video-processor").start()
 
     def _prune_disk(self):
-        """Delete images and videos from disk that are no longer in self.events."""
+        """Delete images and videos from disk that are no longer in self.events or are invalid posthumous clips."""
         try:
-            current_ids = {e["alarm_id"] for e in self.events}
+            ev_map = {str(e["alarm_id"]): e.get("alarm_time", "") for e in self.events}
             for f in EVENT_SNAPSHOT_PATH.glob("event_*.jpg"):
                 try:
                     f_id = f.name[6:-4]
-                    if f_id not in current_ids:
+                    if f_id not in ev_map:
                         f.unlink()
                         logger.debug("Pruned old event image: %s", f.name)
                 except: continue
@@ -196,9 +281,9 @@ class EventStore:
             for f in EVENT_VIDEO_PATH.glob("video_*.mp4"):
                 try:
                     f_id = f.name[6:-4]
-                    if f_id not in current_ids:
+                    if f_id not in ev_map or not self.is_valid_video(f, ev_map[f_id]):
                         f.unlink()
-                        logger.debug("Pruned old event video: %s", f.name)
+                        logger.info("Pruned obsolete or posthumous live video clip: %s", f.name)
                 except: continue
         except Exception as e:
             logger.error("Disk pruning failed: %s", e)
@@ -242,103 +327,129 @@ class EventStore:
             logger.error("Event image processor failed: %s", e)
 
     def generate_clip(self, alarm_id: str) -> bool:
-        """Generate MP4 clip for a specific event on-demand via ffmpeg."""
+        """Generate MP4 clip for a specific event via ffmpeg ONLY while the event is happening live."""
         if not shutil.which("ffmpeg"):
             logger.warning("ffmpeg not found, cannot generate clip")
             return False
 
-        out_path = EVENT_VIDEO_PATH / f"video_{alarm_id}.mp4"
-        if out_path.exists() and out_path.stat().st_size > 10000:
-            return True
+        alarm_id_str = str(alarm_id)
+        clip_lock = self._get_clip_lock(alarm_id_str)
+        with clip_lock:
+            event = None
+            with self.lock:
+                for e in self.events:
+                    if str(e.get("alarm_id")) == alarm_id_str:
+                        event = e
+                        break
 
-        event = None
-        with self.lock:
-            for e in self.events:
-                if str(e.get("alarm_id")) == str(alarm_id):
-                    event = e
-                    break
+            if not event:
+                logger.warning("Event %s not found in store for clip generation", alarm_id_str)
+                return False
 
-        if not event:
-            logger.warning("Event %s not found in store for clip generation", alarm_id)
-            return False
-
-        ev_time = event.get("alarm_time")
-        if not ev_time:
-            return False
-
-        try:
-            ev_dt = datetime.strptime(ev_time, "%Y-%m-%d %H:%M:%S")
-            start_str = (ev_dt - timedelta(seconds=10)).strftime("%Y-%m-%d %H:%M:%S")
-            stop_str = (ev_dt + timedelta(seconds=35)).strftime("%Y-%m-%d %H:%M:%S")
-        except Exception as te:
-            logger.warning("Error parsing event time '%s': %s", ev_time, te)
-            return False
-
-        client = get_client()
-        stream_url = client.get_hls_stream_url(start_time=start_str, stop_time=stop_str)
-        if not stream_url:
-            logger.warning("Could not obtain HLS stream URL for event %s", alarm_id)
-            return False
-
-        logger.info("⚡ Generating MP4 clip on-demand for event %s...", alarm_id)
-        tmp_out = EVENT_VIDEO_PATH / f"tmp_{alarm_id}.mp4"
-
-        cmd = [
-            "ffmpeg", "-y",
-            "-timeout", "15000000",
-            "-i", stream_url,
-            "-c", "copy",
-            "-movflags", "+faststart",
-            "-t", "45",
-            str(tmp_out)
-        ]
-        try:
-            proc = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45)
-            if proc.returncode == 0 and tmp_out.exists() and tmp_out.stat().st_size > 10000:
-                tmp_out.rename(out_path)
-                logger.info("✅ Successfully generated native event video clip: %s (%d bytes)", out_path.name, out_path.stat().st_size)
-                with self.lock:
-                    for e in self.events:
-                        if str(e.get("alarm_id")) == str(alarm_id):
-                            e["local_video"] = True
-                            break
+            ev_time = event.get("alarm_time", "")
+            out_path = EVENT_VIDEO_PATH / f"video_{alarm_id_str}.mp4"
+            if self.is_valid_video(out_path, ev_time):
                 return True
-            else:
+
+            if not ev_time:
+                return False
+
+            age_s = self.event_age_seconds(ev_time)
+            if age_s > 120:
+                logger.info(
+                    "Skipping clip generation for past event %s (age=%.0fs > 120s): CS-HP2 HLS stream is live-only",
+                    alarm_id_str,
+                    age_s,
+                )
+                return False
+
+            try:
+                ev_dt = datetime.strptime(ev_time, "%Y-%m-%d %H:%M:%S")
+                start_str = (ev_dt - timedelta(seconds=10)).strftime("%Y-%m-%d %H:%M:%S")
+                stop_str = (ev_dt + timedelta(seconds=35)).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception as te:
+                logger.warning("Error parsing event time '%s': %s", ev_time, te)
+                return False
+
+            client = get_client()
+            stream_url = client.get_hls_stream_url(start_time=start_str, stop_time=stop_str)
+            if not stream_url:
+                logger.warning("Could not obtain HLS stream URL for event %s", alarm_id_str)
+                return False
+
+            # Pre-check that the camera HLS playlist has active .ts segments before launching ffmpeg
+            for attempt in range(8):
+                try:
+                    check_resp = requests.get(stream_url, timeout=4, verify=False, allow_redirects=True)
+                    content = check_resp.text or ""
+                    if check_resp.status_code == 200 and ".ts" in content and "ErrCode" not in content:
+                        break
+                except Exception:
+                    pass
+                time.sleep(1.5)
+
+            logger.info("⚡ Recording live MP4 clip (30s) for active event %s...", alarm_id_str)
+            tmp_out = EVENT_VIDEO_PATH / f"tmp_{alarm_id_str}.mp4"
+
+            cmd = [
+                "ffmpeg", "-y",
+                "-timeout", "15000000",
+                "-i", stream_url,
+                "-c", "copy",
+                "-movflags", "+faststart",
+                "-t", "30",
+                str(tmp_out)
+            ]
+            try:
+                proc = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=65)
+                if proc.returncode == 0 and tmp_out.exists() and tmp_out.stat().st_size > 10000:
+                    tmp_out.replace(out_path)
+                    logger.info("✅ Successfully generated event video clip: %s (%d bytes)", out_path.name, out_path.stat().st_size)
+                    with self.lock:
+                        for e in self.events:
+                            if str(e.get("alarm_id")) == alarm_id_str:
+                                e["local_video"] = True
+                                break
+                    return True
+                else:
+                    if tmp_out.exists():
+                        tmp_out.unlink()
+                    logger.warning("FFmpeg finished with code %s for event %s", proc.returncode, alarm_id_str)
+                    return False
+            except subprocess.TimeoutExpired:
                 if tmp_out.exists():
                     tmp_out.unlink()
-                logger.warning("FFmpeg finished with code %s for event %s", proc.returncode, alarm_id)
+                logger.warning("FFmpeg timed out downloading clip for event %s", alarm_id_str)
                 return False
-        except subprocess.TimeoutExpired:
-            if tmp_out.exists():
-                tmp_out.unlink()
-            logger.warning("FFmpeg timed out downloading clip for event %s", alarm_id)
-            return False
-        except Exception as fe:
-            if tmp_out.exists():
-                tmp_out.unlink()
-            logger.error("FFmpeg error on event %s: %s", alarm_id, fe)
-            return False
+            except Exception as fe:
+                if tmp_out.exists():
+                    tmp_out.unlink()
+                logger.error("FFmpeg error on event %s: %s", alarm_id_str, fe)
+                return False
 
     def _process_videos(self):
-        """Download MP4 clips for recent events using ffmpeg from their HLS stream."""
+        """Download MP4 clips only for currently active events (age <= 120s)."""
         if not shutil.which("ffmpeg"):
             logger.warning("ffmpeg not found, skipping video clip downloads")
             return
 
         try:
             with self.lock:
-                to_process = [e for e in self.events if not e.get("local_video")]
+                to_process = [
+                    e for e in self.events
+                    if not e.get("local_video") and self.event_age_seconds(e.get("alarm_time", "")) <= 120
+                ]
 
             for ev in to_process:
                 ev_id = ev["alarm_id"]
                 out_path = EVENT_VIDEO_PATH / f"video_{ev_id}.mp4"
-                if out_path.exists() and out_path.stat().st_size > 10000:
+                if self.is_valid_video(out_path, ev.get("alarm_time", "")):
                     with self.lock:
                         ev["local_video"] = True
                     continue
 
                 self.generate_clip(ev_id)
-                time.sleep(2) # Throttle to prevent cloud rate limits
+                time.sleep(2)
         except Exception as e:
             logger.error("Event video processor error: %s", e)
 
@@ -461,8 +572,10 @@ def _on_ezviz_push_message(msg):
     logger.info("⚡ Real-time Push Message received: %s", json.dumps(msg))
     
     ext = msg.get("ext", {}) if isinstance(msg.get("ext"), dict) else {}
-    # Try multiple ways to get an event ID to avoid duplicates
-    ev_id = msg.get("id") or ext.get("msgId") or msg.get("extras", {}).get("ticket")
+    # Prefer ext["msgId"] (canonical MVE... ID used by get_alarm_list) so push and cloud polling share the same ID
+    raw_msg_id = ext.get("msgId")
+    raw_push_id = msg.get("id") or msg.get("extras", {}).get("ticket")
+    ev_id = raw_msg_id or raw_push_id
     
     # Capture the exact time from the push message if available
     push_time = ext.get("time")
@@ -473,13 +586,16 @@ def _on_ezviz_push_message(msg):
         # Fallback to a hash of alert text and time if ID is missing
         ev_id = f"push_{msg.get('alert', 'Event')}_{push_time}".replace(" ", "_").replace(":", "-")
     ev_id = str(ev_id)
+    alt_id = str(raw_push_id) if raw_push_id else ""
     
     global _seen_events
     if _seen_events is None:
         _seen_events = set()
     
-    if ev_id not in _seen_events:
+    if ev_id not in _seen_events and (not alt_id or alt_id not in _seen_events):
         _seen_events.add(ev_id)
+        if alt_id:
+            _seen_events.add(alt_id)
         logger.info("⚡ New event %s detected (type: %s). Processing...", ev_id, ext.get("alert_type_code"))
 
         # Determine event type & extract image URL from push payload (ext['image'])
@@ -534,6 +650,15 @@ def _on_ezviz_push_message(msg):
             }],
             download_images=not has_event_pic,
         )
+
+        # 2b. Immediately launch live video clip capture while the camera is awake and the event is happening
+        if SAVE_EVENT_CLIPS:
+            threading.Thread(
+                target=_event_store.generate_clip,
+                args=(ev_id,),
+                daemon=True,
+                name=f"push-clip-{ev_id}",
+            ).start()
 
         # 3. Only if push_pic_url was missing or failed download, force a synchronous snapshot
         #    before notifying HA so current.jpg is never stale.
@@ -1054,7 +1179,14 @@ def api_events():
         if pic_url and len(pic_url) > 200:
             clean_ev["alarm_pic_url"] = ingress_url(f"/api/events/image/{ev['alarm_id']}")
         v_file = EVENT_VIDEO_PATH / f"video_{ev['alarm_id']}.mp4"
-        clean_ev["local_video"] = v_file.exists() and v_file.stat().st_size > 10000
+        tmp_file = EVENT_VIDEO_PATH / f"tmp_{ev['alarm_id']}.mp4"
+        ev_time = clean_ev.get("alarm_time", "")
+        clean_ev["local_video"] = _event_store.is_valid_video(v_file, ev_time)
+        clean_ev["video_recording"] = tmp_file.exists() or (
+            not clean_ev["local_video"]
+            and SAVE_EVENT_CLIPS
+            and _event_store.event_age_seconds(ev_time) <= 75
+        )
         clean_events.append(clean_ev)
         
     return jsonify({
@@ -1076,57 +1208,64 @@ def api_event_image(alarm_id):
 
 @app.route("/api/events/clip/<alarm_id>")
 def api_event_clip(alarm_id):
-    """Serve a locally-downloaded event MP4 video clip, generating on-demand if requested."""
+    """Serve a locally-downloaded event MP4 video clip, generating only if the event is currently active."""
     filename = f"video_{alarm_id}.mp4"
     filepath = EVENT_VIDEO_PATH / filename
-    
-    # 1. If clip already exists and is valid, return it as attachment
-    if filepath.exists() and filepath.stat().st_size > 10000:
-        return send_file(filepath, mimetype="video/mp4", as_attachment=True, download_name=f"event_{alarm_id}.mp4")
-    
-    # 2. Check query parameter: generate=true or check=true
-    check_only = request.args.get("check", "false").lower() == "true"
-    if check_only:
-        return jsonify({"ready": False, "status": "processing"}), 200
-
-    # 3. Trigger on-demand generation synchronously or in background
-    logger.info("⚡ On-demand clip request for alarm %s", alarm_id)
-    success = _event_store.generate_clip(alarm_id)
-    if success and filepath.exists() and filepath.stat().st_size > 10000:
-        return send_file(filepath, mimetype="video/mp4", as_attachment=True, download_name=f"event_{alarm_id}.mp4")
-
-    return jsonify({"error": "Video clip not available on camera or still processing", "ready": False}), 404
-
-
-@app.route("/api/events/video/<alarm_id>")
-def api_event_video(alarm_id):
-    """Obtain and redirect to the native HLS (.m3u8) video stream for this event."""
-    logger.info("⚡ Request video stream for alarm %s", alarm_id)
     event = None
     for e in _event_store.get_all():
         if str(e.get("alarm_id")) == str(alarm_id):
             event = e
             break
+    ev_time = event.get("alarm_time", "") if event else ""
 
-    start_str = None
-    stop_str = None
-    if event and event.get("alarm_time"):
-        try:
-            ev_dt = datetime.strptime(event["alarm_time"], "%Y-%m-%d %H:%M:%S")
-            start_str = (ev_dt - timedelta(seconds=10)).strftime("%Y-%m-%d %H:%M:%S")
-            stop_str = (ev_dt + timedelta(seconds=35)).strftime("%Y-%m-%d %H:%M:%S")
-        except Exception as te:
-            logger.warning("Could not parse event time '%s': %s", event.get("alarm_time"), te)
+    # 1. If clip already exists and was recorded during the event window, return it as attachment
+    if _event_store.is_valid_video(filepath, ev_time):
+        return send_file(filepath, mimetype="video/mp4", as_attachment=True, download_name=f"event_{alarm_id}.mp4")
+    
+    # 2. Check query parameter: check=true
+    check_only = request.args.get("check", "false").lower() == "true"
+    if check_only:
+        return jsonify({"ready": False, "status": "processing"}), 200
 
-    try:
-        client = get_client()
-        stream_url = client.get_hls_stream_url(start_time=start_str, stop_time=stop_str)
-        if stream_url:
-            return redirect(stream_url)
-        return jsonify({"error": "Could not obtain HLS stream from Ezviz Open Platform"}), 502
-    except Exception as e:
-        logger.error("Error generating event video stream: %s", e)
-        return jsonify({"error": str(e)}), 500
+    # 3. Only wait/generate if the event is currently active (<= 120s old) or already recording
+    tmp_file = EVENT_VIDEO_PATH / f"tmp_{alarm_id}.mp4"
+    if tmp_file.exists() or (ev_time and _event_store.event_age_seconds(ev_time) <= 120):
+        logger.info("⚡ Waiting/generating live clip for active alarm %s", alarm_id)
+        success = _event_store.generate_clip(alarm_id)
+        if success and _event_store.is_valid_video(filepath, ev_time):
+            return send_file(filepath, mimetype="video/mp4", as_attachment=True, download_name=f"event_{alarm_id}.mp4")
+
+    return jsonify({
+        "error": "Registrazione video MP4 non disponibile per questo evento passato (CS-HP2 supporta solo la cattura live durante l'evento)",
+        "ready": False,
+    }), 404
+
+
+@app.route("/api/events/video/<alarm_id>")
+def api_event_video(alarm_id):
+    """Serve the recorded event MP4 video stream (never redirect to the live camera feed)."""
+    logger.info("⚡ Request event video playback for alarm %s", alarm_id)
+    filepath = EVENT_VIDEO_PATH / f"video_{alarm_id}.mp4"
+    event = None
+    for e in _event_store.get_all():
+        if str(e.get("alarm_id")) == str(alarm_id):
+            event = e
+            break
+    ev_time = event.get("alarm_time", "") if event else ""
+
+    if _event_store.is_valid_video(filepath, ev_time):
+        return send_file(filepath, mimetype="video/mp4", conditional=True)
+
+    tmp_file = EVENT_VIDEO_PATH / f"tmp_{alarm_id}.mp4"
+    if tmp_file.exists() or (ev_time and _event_store.event_age_seconds(ev_time) <= 120):
+        logger.info("⚡ Event %s clip is currently recording, waiting for completion...", alarm_id)
+        if _event_store.generate_clip(alarm_id) and _event_store.is_valid_video(filepath, ev_time):
+            return send_file(filepath, mimetype="video/mp4", conditional=True)
+
+    return jsonify({
+        "error": "Registrazione video non disponibile per questo evento (solo istantanea salvata).",
+        "alarm_id": alarm_id,
+    }), 404
 
 
 @app.route("/api/live/stream.m3u8")
@@ -1168,21 +1307,24 @@ def api_live_hls():
 
 @app.route("/player")
 def html5_player():
-    """Lightweight universal HTML5 video player page for HLS streams."""
+    """Universal HTML5 video player page: HLS for Live stream, native MP4 for recorded events."""
     alarm_id = request.args.get("alarm_id", "")
-    is_live = request.args.get("live", "false").lower() == "true"
+    is_live = request.args.get("live", "false").lower() == "true" or not alarm_id
     
     if is_live:
         raw_path = "/api/live/stream.m3u8"
         title = f"Live Stream — {CAMERA_SERIAL}"
-    elif alarm_id:
-        raw_path = f"/api/events/video/{alarm_id}"
-        title = f"Registrazione Evento #{alarm_id}"
     else:
-        raw_path = "/api/live/stream.m3u8"
-        title = f"Live Stream — {CAMERA_SERIAL}"
+        event_time_label = ""
+        for e in _event_store.get_all():
+            if str(e.get("alarm_id")) == str(alarm_id):
+                event_time_label = f" ({e.get('alarm_time', '')})"
+                break
+        raw_path = f"/api/events/video/{alarm_id}"
+        title = f"Registrazione Evento{event_time_label}"
 
     ingress_path = ingress_url(raw_path)
+    is_live_js = "true" if is_live else "false"
 
     return f"""<!DOCTYPE html>
 <html lang="it">
@@ -1224,19 +1366,50 @@ def html5_player():
       margin-bottom: 12px;
       color: #aaa;
     }}
+    #error-box {{
+      display: none;
+      margin-top: 16px;
+      padding: 14px 18px;
+      border-radius: 8px;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #fca5a5;
+      font-size: 14px;
+    }}
   </style>
 </head>
 <body>
   <div class="player-container">
     <h1>{title}</h1>
     <video id="video" controls autoplay playsinline></video>
+    <div id="error-box"></div>
   </div>
   <script>
     const video = document.getElementById('video');
+    const errorBox = document.getElementById('error-box');
     const isIngress = window.location.pathname.includes('/api/hassio_ingress/');
     const videoSrc = isIngress ? '{ingress_path}' : '{raw_path}';
+    const isLive = {is_live_js};
 
-    if (Hls.isSupported()) {{
+    function showError(msg) {{
+      video.style.display = 'none';
+      errorBox.style.display = 'block';
+      errorBox.textContent = msg;
+    }}
+
+    if (!isLive) {{
+      // Recorded event clip is a standard MP4 file
+      video.src = videoSrc;
+      video.addEventListener('loadedmetadata', function() {{
+        video.play().catch(e => console.log('Autoplay prevented:', e));
+      }});
+      video.addEventListener('error', function() {{
+        fetch(videoSrc)
+          .then(r => r.json())
+          .then(d => showError(d.error || 'Registrazione video non disponibile per questo evento.'))
+          .catch(() => showError('Registrazione video non disponibile per questo evento.'));
+      }});
+    }} else if (Hls.isSupported()) {{
       const hls = new Hls({{
         enableWorker: true,
         lowLatencyMode: false,

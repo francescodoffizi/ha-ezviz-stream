@@ -378,6 +378,7 @@
                 <span class="badge badge-other !bg-green-900/20 !text-green-400 text-[9px]">Local</span>
                 {% endif %}
                 
+                {% if event.local_video %}
                 <button onclick="openPlayer('{{ event.alarm_id }}', false)"
                    class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1"
                    style="background:#8b5cf6; color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;">
@@ -395,6 +396,9 @@
                   </svg>
                   <span>MP4</span>
                 </button>
+                {% else %}
+                <span class="badge badge-other text-[9px]" style="opacity:0.55;" title="Registrazione video non presente per questo evento">Solo Foto</span>
+                {% endif %}
 
                 {% if img_url %}
                 <button onclick="showImageModal('{{ img_url }}')"
@@ -801,6 +805,7 @@
               </div>
               <div class="flex items-center gap-2">
                 ${localBadge}
+                ${e.local_video ? `
                 <button onclick="openPlayer('${e.alarm_id}', false)"
                    class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1"
                    style="background:#8b5cf6; color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;">
@@ -817,6 +822,15 @@
                   </svg>
                   <span>MP4</span>
                 </button>
+                ` : (e.video_recording ? `
+                <button onclick="openPlayer('${e.alarm_id}', false)"
+                   class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1"
+                   style="background:#6d28d9; color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;">
+                  <span>Reg. Video…</span>
+                </button>
+                ` : `
+                <span class="badge badge-other text-[9px]" style="opacity:0.55;" title="Registrazione video non presente per questo evento">Solo Foto</span>
+                `)}
                 ${imgUrl ? `
                   <button onclick="showImageModal('${imgUrl}')" 
                      class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1" 
