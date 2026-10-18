@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Fixed & Improved
+- **Sincronizzazione Immediata Immagine Evento Push Prima della Notifica MQTT (`server.py`)**:
+  - Risolto il bug in `_on_ezviz_push_message` per cui l'URL dell'immagine allegata al push real-time Ezviz (`ext["image"]`) veniva ignorato perché cercato solo al livello radice (`msg.get("image")`), ritardando il download di `event_<id>.jpg` di oltre 10 secondi e facendo inviare a Home Assistant l'immagine dell'evento precedente.
+  - Il download dell'immagine dell'evento da `ext["image"]` (con fino a 4 tentativi rapidi) e il salvataggio sia su `/data/snapshots/events/event_<id>.jpg` (`local_pic = True`) sia su `/data/snapshots/current.jpg` (`/api/snapshot`) avvengono ora **prima** della pubblicazione di `ON` sul topic MQTT di Home Assistant.
+  - In `EventStore`, lo stato `local_pic` viene verificato anche su disco e preservato durante il merge degli eventi, aggiornando `current.jpg` quando viene scaricata l'immagine dell'evento più recente.
+
+---
+
 ## [1.7.9] — 2026-10-12
 
 ### Fixed & Improved

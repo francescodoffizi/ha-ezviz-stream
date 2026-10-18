@@ -134,7 +134,7 @@ class EventStore:
                     "alarm_time": ev_time,
                     "alarm_pic_url": event.get("alarm_pic_url") or event.get("pic_url") or "",
                     "is_push": event.get("is_push", False),
-                    "local_pic": event.get("local_pic", False),
+                    "local_pic": event.get("local_pic", False) or (EVENT_SNAPSHOT_PATH / f"event_{ev_id}.jpg").exists(),
                     "local_video": event.get("local_video", (EVENT_VIDEO_PATH / f"video_{ev_id}.mp4").exists()),
                     "device_serial": event.get("device_serial", CAMERA_SERIAL)
                 }
@@ -151,6 +151,8 @@ class EventStore:
                     # Merge flags
                     if normalized["is_push"]: old["is_push"] = True
                     if normalized["alarm_pic_url"]: old["alarm_pic_url"] = normalized["alarm_pic_url"]
+                    if normalized["local_pic"] or (EVENT_SNAPSHOT_PATH / f"event_{old['alarm_id']}.jpg").exists():
+                        old["local_pic"] = True
                     if (EVENT_VIDEO_PATH / f"video_{old['alarm_id']}.mp4").exists():
                         old["local_video"] = True
                 else:
@@ -225,6 +227,15 @@ class EventStore:
                             if e["alarm_id"] == ev["alarm_id"]:
                                 e["local_pic"] = True
                                 break
+                        is_latest = bool(self.events and self.events[0]["alarm_id"] == ev["alarm_id"])
+                    if is_latest:
+                        try:
+                            CURRENT_SNAPSHOT_FILE.write_bytes(img_bytes)
+                            global _last_snapshot_time, _snapshot_error
+                            _last_snapshot_time = datetime.now(timezone.utc)
+                            _snapshot_error = ""
+                        except Exception:
+                            pass
                     logger.info("Saved event image: %s", filename)
                 time.sleep(1) # Throttle
         except Exception as e:
@@ -369,6 +380,8 @@ ezviz_mqtt = None
 _seen_events: set | None = None
 _last_event_trigger_time: float = 0
 _last_auth_fail_time: float = 0
+_live_stream_cache: dict = {"url": "", "expire": 0}
+_live_stream_lock = threading.Lock()
 
 
 def get_client() -> EzvizClient:
@@ -411,8 +424,8 @@ def handle_auth_error(e):
 # Background snapshot poller & Real-time MQTT setup
 # ---------------------------------------------------------------------------
 
-def _fetch_snapshot_on_event():
-    """Trigger an immediate snapshot asynchronously when motion/doorbell is pushed."""
+def _fetch_snapshot_on_event(ev_id: str | None = None) -> bool:
+    """Trigger an immediate snapshot when motion/doorbell is pushed."""
     global _last_snapshot_time, _snapshot_error
     try:
         logger.info("⚡ Event detected! Forcing immediate snapshot fetch...")
@@ -423,11 +436,22 @@ def _fetch_snapshot_on_event():
                 f.write(img_bytes)
             _last_snapshot_time = datetime.now(timezone.utc)
             _snapshot_error = ""
+            if ev_id:
+                ev_img_path = EVENT_SNAPSHOT_PATH / f"event_{ev_id}.jpg"
+                if not ev_img_path.exists():
+                    ev_img_path.write_bytes(img_bytes)
+                    with _event_store.lock:
+                        for e in _event_store.events:
+                            if str(e.get("alarm_id")) == str(ev_id):
+                                e["local_pic"] = True
+                                break
             logger.debug("Event-driven snapshot saved (%d bytes)", len(img_bytes))
+            return True
         else:
             logger.warning("Event-driven snapshot returned empty data")
     except Exception as e:
         logger.error("Failed to fetch snapshot on event: %s", e)
+    return False
 
 def _on_ezviz_push_message(msg):
     """Callback triggered instantly by Ezviz Cloud when motion/doorbell occurs."""
@@ -436,7 +460,7 @@ def _on_ezviz_push_message(msg):
     
     logger.info("⚡ Real-time Push Message received: %s", json.dumps(msg))
     
-    ext = msg.get("ext", {})
+    ext = msg.get("ext", {}) if isinstance(msg.get("ext"), dict) else {}
     # Try multiple ways to get an event ID to avoid duplicates
     ev_id = msg.get("id") or ext.get("msgId") or msg.get("extras", {}).get("ticket")
     
@@ -448,6 +472,7 @@ def _on_ezviz_push_message(msg):
     if not ev_id:
         # Fallback to a hash of alert text and time if ID is missing
         ev_id = f"push_{msg.get('alert', 'Event')}_{push_time}".replace(" ", "_").replace(":", "-")
+    ev_id = str(ev_id)
     
     global _seen_events
     if _seen_events is None:
@@ -457,16 +482,73 @@ def _on_ezviz_push_message(msg):
         _seen_events.add(ev_id)
         logger.info("⚡ New event %s detected (type: %s). Processing...", ev_id, ext.get("alert_type_code"))
 
-        # Trigger snapshot fetch IMMEDIATELY (independent of MQTT publish)
+        # Determine event type & extract image URL from push payload (ext['image'])
+        alert_code = int(ext.get("alert_type_code", 0))
+        push_pic_url = (
+            ext.get("image")
+            or ext.get("picUrl")
+            or ext.get("alarmPicUrl")
+            or ext.get("default_pic_url")
+            or msg.get("image")
+            or msg.get("picUrl")
+            or ""
+        )
+
+        # 1. Immediately download the event image from push_pic_url BEFORE publishing MQTT ON
+        #    so Home Assistant automations never grab the previous event's snapshot.
+        has_event_pic = False
+        if isinstance(push_pic_url, str) and push_pic_url.startswith("http"):
+            try:
+                client = get_client()
+                for attempt in range(4):
+                    img_bytes = client._download_image(push_pic_url)
+                    if img_bytes:
+                        ev_img_path = EVENT_SNAPSHOT_PATH / f"event_{ev_id}.jpg"
+                        ev_img_path.write_bytes(img_bytes)
+                        CURRENT_SNAPSHOT_FILE.write_bytes(img_bytes)
+                        global _last_snapshot_time, _snapshot_error
+                        _last_snapshot_time = datetime.now(timezone.utc)
+                        _snapshot_error = ""
+                        has_event_pic = True
+                        logger.info(
+                            "⚡ Push event image downloaded immediately (%d bytes) -> %s & current.jpg",
+                            len(img_bytes),
+                            ev_img_path.name,
+                        )
+                        break
+                    if attempt < 3:
+                        time.sleep(0.6)
+            except Exception as pe:
+                logger.warning("Immediate push image download failed for %s: %s", ev_id, pe)
+
+        # 2. Register the event in EventStore (with local_pic=True if already saved)
+        _event_store.add_events(
+            [{
+                "alarm_id": ev_id,
+                "alarm_type": alert_code,
+                "alarm_name": msg.get("alert", "Event"),
+                "alarm_time": push_time,
+                "pic_url": push_pic_url,
+                "local_pic": has_event_pic,
+                "is_push": True,
+            }],
+            download_images=not has_event_pic,
+        )
+
+        # 3. Only if push_pic_url was missing or failed download, force a synchronous snapshot
+        #    before notifying HA so current.jpg is never stale.
         global _last_event_trigger_time
         now = time.time()
-        if now - _last_event_trigger_time > 15:
-            _last_event_trigger_time = now
-            threading.Thread(target=_fetch_snapshot_on_event, daemon=True, name="event-snapshot-worker").start()
+        if not has_event_pic:
+            if now - _last_event_trigger_time > 10:
+                _last_event_trigger_time = now
+                _fetch_snapshot_on_event(ev_id)
+            else:
+                logger.debug("⚡ Event debounce active (last snapshot was %.1fs ago)", now - _last_event_trigger_time)
         else:
-            logger.debug("⚡ Event debounce active (last snapshot was %.1fs ago)", now - _last_event_trigger_time)
+            _last_event_trigger_time = now
 
-        # Publish to local HA MQTT if possible
+        # 4. Publish to local HA MQTT now that the new snapshot is ready on disk
         mqtt_host = os.environ.get("MQTT_HOST")
         if not mqtt_host:
             logger.info("⚠️ MQTT_HOST not set, skipping local MQTT publish")
@@ -477,8 +559,6 @@ def _on_ezviz_push_message(msg):
         mqtt_pass = os.environ.get("MQTT_PASSWORD", "")
         auth = {'username': mqtt_user, 'password': mqtt_pass} if mqtt_user else None
         
-        # Determine event type
-        alert_code = int(ext.get("alert_type_code", 0))
         # Doorbell codes: 10000 (Generic), 10006 (Ring), 10022 (Call), 10054/10055 (HP2 specific)
         is_doorbell = alert_code in [10000, 10001, 10002, 10006, 10022, 10054, 10055]
         # Alarm/Problem: tamper (10005), signal loss (10101), error (10115) etc.
@@ -541,19 +621,7 @@ def _on_ezviz_push_message(msg):
         except Exception as e:
             logger.error("⚡ Real-time Push failed to publish to HA MQTT: %s", e)
 
-        # Update the local events list via EventStore
-        # We pass it as a list, and EventStore will handle its own background image processing
-        _event_store.add_events([{
-            "alarm_id": ev_id,
-            "alarm_type": alert_code,
-            "alarm_name": msg.get("alert", "Event"),
-            "alarm_time": push_time,
-            "pic_url": msg.get("image", ""),
-            "is_push": True
-        }])
-
-        # Trigger a cloud event fetch in 5 seconds to get the proper cloud picURL if it was missing 
-        # (Ezviz push messages often lack the image URL immediately)
+        # Trigger deferred event refresh and video clip generation in background
         def _deferred_event_refresh():
             time.sleep(5)
             try:
@@ -561,6 +629,8 @@ def _on_ezviz_push_message(msg):
                 polled = client.get_alarm_list(max_count=5)
                 if polled:
                     _event_store.add_events(polled)
+                elif SAVE_EVENT_CLIPS:
+                    _event_store._process_videos()
             except: pass
         threading.Thread(target=_deferred_event_refresh, daemon=True).start()
 
