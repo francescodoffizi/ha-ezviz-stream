@@ -605,12 +605,47 @@ class MQTTClient:
             if "ext" in data and isinstance(data["ext"], str):
                 ext_parts = data["ext"].split(",")
                 ext_dict: dict[str, Any] = {}
-                for i, name in enumerate(EXT_FIELD_NAMES):
-                    value: Any = ext_parts[i] if i < len(ext_parts) else None
-                    if value is not None and name in EXT_INT_FIELDS:
+                if ext_parts and ext_parts[0].strip() == "14" and len(ext_parts) >= 11:
+                    # DoorBellPushAlarm schema (AnalyzePushMessageManager.java i == 14)
+                    def _to_int(val: str | None, default: int = 0) -> int:
+                        if val is None:
+                            return default
                         with suppress(ValueError):
-                            value = int(value)
-                    ext_dict[name] = value
+                            return int(val)
+                        return default
+
+                    raw_time = (ext_parts[1] or "").replace("+", " ")
+                    calling_id = ext_parts[5] if len(ext_parts) > 5 else ""
+                    pic_url = ext_parts[7] if len(ext_parts) > 7 else ""
+                    ext_dict = {
+                        "channel_type": 14,
+                        "time": raw_time,
+                        "device_serial": ext_parts[2] if len(ext_parts) > 2 else "",
+                        "channel_no": _to_int(ext_parts[3] if len(ext_parts) > 3 else None, 1),
+                        "calling_type": _to_int(ext_parts[4] if len(ext_parts) > 4 else None, 1),
+                        "calling_id": calling_id,
+                        "calling_status": _to_int(ext_parts[6] if len(ext_parts) > 6 else None, 1),
+                        "alert_type_code": 2701,  # AlarmType.DOORBELL_RING
+                        "msgId": calling_id,
+                        "image": pic_url,
+                        "picUrl": pic_url,
+                        "default_pic_url": pic_url,
+                        "is_encrypted": _to_int(ext_parts[8] if len(ext_parts) > 8 else None, 0),
+                        "picChecksum": ext_parts[9] if len(ext_parts) > 9 else "",
+                        "analysis_type": _to_int(ext_parts[10] if len(ext_parts) > 10 else None, 0),
+                        "analysis_result": ext_parts[11] if len(ext_parts) > 11 else "",
+                        "device_name": ext_parts[13] if len(ext_parts) > 13 else "",
+                        "metadata": ext_parts[15] if len(ext_parts) > 15 else "",
+                    }
+                else:
+                    for i, name in enumerate(EXT_FIELD_NAMES):
+                        value: Any = ext_parts[i] if i < len(ext_parts) else None
+                        if value is not None and name in EXT_INT_FIELDS:
+                            with suppress(ValueError):
+                                value = int(value)
+                        ext_dict[name] = value
+                    if isinstance(ext_dict.get("time"), str) and "+" in ext_dict["time"]:
+                        ext_dict["time"] = ext_dict["time"].replace("+", " ")
                 data["ext"] = ext_dict
 
         except json.JSONDecodeError as err:

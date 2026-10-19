@@ -161,15 +161,29 @@ class EventStore:
                 
                 ev_id = str(raw_id)
                 raw_type = event.get("alarm_type") or event.get("alarm_name") or "Event"
+                sub_type = str(event.get("sub_type") or "")
                 
-                # Normalize types
+                # Normalize types according to Ezviz APK AlarmType.java
                 type_map = {
-                    "10000": "Doorbell", "10001": "Doorbell", "10002": "Doorbell", "10006": "Doorbell", 
-                    "10022": "Doorbell", "10054": "Doorbell", "10055": "Doorbell",
-                    "1": "Motion", "11514": "Motion", "11502": "Motion"
+                    "2701": "Doorbell",
+                    "20007": "Doorbell",
+                    "10054": "Doorbell",
+                    "10055": "Doorbell",
+                    "10016": "Doorbell PIR",
+                    "10000": "PIR",
+                    "10002": "Motion",
+                    "10120": "AI Human Detection",
+                    "10121": "AI Human Detection",
+                    "10140": "PIR",
+                    "12663": "Face Recognition",
+                    "1": "Motion",
+                    "11514": "Motion",
+                    "11502": "Motion",
                 }
-                ev_type = type_map.get(str(raw_type), str(raw_type))
-                ev_time = event.get("alarm_time") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                ev_type = type_map.get(sub_type) or type_map.get(str(raw_type), str(raw_type))
+                if any(kw in ev_type.lower() for kw in ("doorbell", "campanello", "chiamata", "squillo", "citofono", "door_bell")):
+                    ev_type = "Doorbell"
+                ev_time = (event.get("alarm_time") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")).replace("+", " ")
 
                 match_idx = None
                 # 1. Match by ID
@@ -702,13 +716,26 @@ def _on_ezviz_push_message(msg):
     logger.info("⚡ Real-time Push Message received: %s", json.dumps(msg))
     
     ext = msg.get("ext", {}) if isinstance(msg.get("ext"), dict) else {}
-    # Prefer ext["msgId"] (canonical MVE... ID used by get_alarm_list) so push and cloud polling share the same ID
-    raw_msg_id = ext.get("msgId")
+    channel_type = str(ext.get("channel_type") or "")
+
+    # For DoorBellPushAlarm (channel_type == 14), calling_status: 1 = incoming ring, 2 = answered, 3 = ended/missed
+    if channel_type == "14":
+        raw_call_status = ext.get("calling_status") if ext.get("calling_status") is not None else ext.get("media_url_alt1")
+        if raw_call_status is not None and str(raw_call_status).strip() not in ("", "1"):
+            logger.info(
+                "⚡ Ignoring DoorBellPushAlarm call status update (calling_status=%s, calling_id=%s)",
+                raw_call_status,
+                ext.get("calling_id") or ext.get("msgId"),
+            )
+            return
+
+    # Prefer ext["msgId"] (canonical MVE... ID or callingId) so push and cloud polling share the same ID
+    raw_msg_id = ext.get("msgId") or ext.get("calling_id") or (ext.get("default_pic_url") if channel_type == "14" and not str(ext.get("default_pic_url", "")).startswith("http") else None)
     raw_push_id = msg.get("id") or msg.get("extras", {}).get("ticket")
     ev_id = raw_msg_id or raw_push_id
     
-    # Capture the exact time from the push message if available
-    push_time = ext.get("time")
+    # Capture the exact time from the push message if available (normalize '+' from DoorBellPushAlarm)
+    push_time = (ext.get("time") or "").replace("+", " ")
     if not push_time:
         push_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -726,15 +753,27 @@ def _on_ezviz_push_message(msg):
         _seen_events.add(ev_id)
         if alt_id:
             _seen_events.add(alt_id)
-        logger.info("⚡ New event %s detected (type: %s). Processing...", ev_id, ext.get("alert_type_code"))
+        logger.info("⚡ New event %s detected (channel_type: %s, type: %s). Processing...", ev_id, channel_type, ext.get("alert_type_code"))
 
-        # Determine event type & extract image URL from push payload (ext['image'])
-        alert_code = int(ext.get("alert_type_code", 0))
+        # Determine event type & extract image URL from push payload
+        try:
+            alert_code = int(ext.get("alert_type_code") or (2701 if channel_type == "14" else 0))
+        except (ValueError, TypeError):
+            alert_code = 2701 if channel_type == "14" else 0
+
+        alert_text = str(msg.get("alert") or ext.get("device_name") or "Event")
+        is_doorbell = (
+            channel_type == "14"
+            or alert_code in (2701, 20007, 10054, 10055)
+            or any(kw in alert_text.lower() for kw in ("doorbell", "campanello", "chiamata", "squillo", "citofono", "door_bell"))
+        )
+
         push_pic_url = (
             ext.get("image")
             or ext.get("picUrl")
             or ext.get("alarmPicUrl")
-            or ext.get("default_pic_url")
+            or (ext.get("media_url_alt2") if channel_type == "14" and str(ext.get("media_url_alt2", "")).startswith("http") else "")
+            or (ext.get("default_pic_url") if str(ext.get("default_pic_url", "")).startswith("http") else "")
             or msg.get("image")
             or msg.get("picUrl")
             or ""
@@ -771,8 +810,9 @@ def _on_ezviz_push_message(msg):
         _event_store.add_events(
             [{
                 "alarm_id": ev_id,
-                "alarm_type": alert_code,
-                "alarm_name": msg.get("alert", "Event"),
+                "alarm_type": "Doorbell" if is_doorbell else alert_code,
+                "sub_type": str(2701 if is_doorbell else alert_code),
+                "alarm_name": "Doorbell" if is_doorbell else alert_text,
                 "alarm_time": push_time,
                 "pic_url": push_pic_url,
                 "local_pic": has_event_pic,
@@ -781,7 +821,7 @@ def _on_ezviz_push_message(msg):
             download_images=not has_event_pic,
         )
 
-        # 2b. Immediately launch live video clip capture while the camera is awake and the event is happening
+        # 2b. Immediately launch video clip capture
         if SAVE_EVENT_CLIPS:
             threading.Thread(
                 target=_event_store.generate_clip,
@@ -814,15 +854,15 @@ def _on_ezviz_push_message(msg):
         mqtt_pass = os.environ.get("MQTT_PASSWORD", "")
         auth = {'username': mqtt_user, 'password': mqtt_pass} if mqtt_user else None
         
-        # Doorbell codes: 10000 (Generic), 10006 (Ring), 10022 (Call), 10054/10055 (HP2 specific)
-        is_doorbell = alert_code in [10000, 10001, 10002, 10006, 10022, 10054, 10055]
-        # Alarm/Problem: tamper (10005), signal loss (10101), error (10115) etc.
-        # Exclude motion (1, 10120, etc.) and doorbell
-        is_alarm = alert_code in [10005, 10101, 10115] or "Tamper" in msg.get("alert", "")
+        # Alarm/Problem: tamper (12021, 12027), smoke (10005), signal loss (10101), error (10115) etc.
+        is_alarm = alert_code in [10005, 10101, 10115, 12021, 12027] or "Tamper" in alert_text
         
         event_type = "doorbell" if is_doorbell else "motion"
+        if is_doorbell:
+            global _last_doorbell_time
+            _last_doorbell_time = push_time
         
-        logger.info("⚡ Push Event: code=%s, type=%s, msg=%s, is_alarm=%s", alert_code, event_type, msg.get("alert", "N/A"), is_alarm)
+        logger.info("⚡ Push Event: channel_type=%s, code=%s, type=%s, msg=%s, is_alarm=%s", channel_type, alert_code, event_type, alert_text, is_alarm)
         
         main_topic = f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_{event_type}/state"
         global_topic = f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_alarm/state"
@@ -1218,7 +1258,7 @@ def debug_alarms():
         
         for stype in subtypes:
             try:
-                alarms = client.get_alarm_list(CAMERA_SERIAL, max_count=10, s_type=stype)
+                alarms = client.get_alarm_list(max_count=10, s_type=stype)
                 all_results[f"stype_{stype}"] = alarms
             except Exception as se:
                 all_results[f"stype_{stype}_error"] = str(se)

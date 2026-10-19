@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.8.1] — 2026-10-19
+
+### Fixed
+- **Rilevamento Eventi Campanello (`DoorBellPushAlarm` `channel_type=14` e `AlarmType=2701`) (`vendor/pyezvizapi/mqtt.py`, `ezviz_client.py`, `server.py`)**:
+  - **Root Cause (da Reverse Engineering APK Ezviz `AnalyzePushMessageManager.java` & `AlarmType.java`)**:
+    1. Quando viene premuto il pulsante del campanello sullo spioncino CS-HP2, il push MQTT usa il tracciato CSV `DoorBellPushAlarm` (`ext_parts[0] == "14"`), dove `ext_parts[4]` è `callingType` (`1`), `ext_parts[5]` è `callingId`, `ext_parts[6]` è `callingStatus` (`1`=squillo in arrivo, `2`=risposto, `3`=terminato/perso) e `ext_parts[7]` è `picUrl`. `pyezvizapi` decodificava tutti i messaggi con il tracciato degli allarmi standard (`channel_type == 1`), interpretando `callingType=1` come `alert_type_code=1` (classificato come `motion` anziché `doorbell`) e ignorando l'URL della foto in `ext_parts[7]`.
+    2. Il codice ufficiale Ezviz per lo squillo campanello (`DOORBELL_RING = 2701` e `PHONE_CALLS = 20007`) non era presente nella mappatura di `server.py` né preservato come `subType` in `ezviz_client.py` (`get_alarm_list`).
+  - **Soluzione**:
+    - Aggiunto il parser dedicato per `channel_type == "14"` (`DoorBellPushAlarm`) in `vendor/pyezvizapi/mqtt.py` con estrazione di `calling_id`, `calling_status`, `picUrl` (`ext_parts[7]`), normalizzazione data (`+` -> spazio) e mappatura a `alert_type_code = 2701`.
+    - In `_on_ezviz_push_message` (`server.py`), filtrati i pacchetti di fine chiamata (`calling_status != 1`), mappati correttamente `channel_type == 14` e i codici `2701`/`20007`/`10054`/`10055` sul sensore `binary_sensor.ezviz_<serial>_doorbell`, e aggiornato `_last_doorbell_time`.
+    - In `get_alarm_list` (`ezviz_client.py`) e `EventStore.add_events` (`server.py`), preservato `subType="2701"` e interrogato anche `s_type="2701"` su `v3/unifiedmsg/list` per non perdere mai le chiamate campanello nello storico.
+
+---
+
 ## [1.8.0] — 2026-10-19
 
 ### Added & Improved

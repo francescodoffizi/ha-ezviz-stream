@@ -919,7 +919,7 @@ class EzvizClient:
 
     def get_alarm_list(self, max_count: int = 10, s_type: str | None = None) -> list[dict]:
         """Return a list of recent alarm events. 
-        s_type "92" is ALL_ALARMS, "101"/"102" is for calling/doorbell messages. 
+        s_type "92" is ALL_ALARMS, "2701" is DOORBELL_RING (calling/doorbell messages).
         """
         with self._lock:
             try:
@@ -935,11 +935,11 @@ class EzvizClient:
                             limit=min(max_count, 50),
                             s_type=s_type
                         )
-                        messages = msgs.get("message") or msgs.get("messages") or []
+                        messages = msgs.get("message") or msgs.get("messages") or msgs.get("msgInfos") or []
                         
                         if isinstance(messages, list) and messages:
                             latest_msg = messages[0] if isinstance(messages[0], dict) else {}
-                            msg_pic = latest_msg.get("picUrl") or latest_msg.get("alarmPicUrl") or ""
+                            msg_pic = latest_msg.get("picUrl") or latest_msg.get("alarmPicUrl") or latest_msg.get("pic") or ""
                             
                             if not msg_pic and attempt < 2:
                                 logger.debug("get_alarm_list: newest message lacks picture, waiting 2.5s (attempt %d/3)", attempt + 1)
@@ -947,17 +947,47 @@ class EzvizClient:
                                 continue
                         break
 
+                    # When querying all alarms (s_type is None), also fetch s_type="2701" (DOORBELL_RING)
+                    # so doorbell calls are never pushed out by frequent motion events
+                    if s_type is None:
+                        try:
+                            db_msgs_resp = self._client.get_device_messages_list(
+                                serials=self.camera_serial,
+                                limit=min(max_count, 20),
+                                s_type="2701",
+                            )
+                            db_msgs = (
+                                db_msgs_resp.get("message")
+                                or db_msgs_resp.get("messages")
+                                or db_msgs_resp.get("msgInfos")
+                                or []
+                            )
+                            if isinstance(db_msgs, list) and db_msgs:
+                                seen_ids = {m.get("msgId") for m in messages if isinstance(m, dict) and m.get("msgId")}
+                                for dm in db_msgs:
+                                    if isinstance(dm, dict) and dm.get("msgId") not in seen_ids:
+                                        messages.append(dm)
+                        except Exception as de:
+                            logger.debug("Optional s_type=2701 fetch skipped: %s", de)
+
                     result = []
                     if isinstance(messages, list):
                         for msg in messages:
                             if not isinstance(msg, dict):
                                 continue
+                            sub_t = str(msg.get("subType") or msg.get("sType") or msg.get("alarmType") or "")
+                            raw_title = str(msg.get("title") or msg.get("sampleName") or msg.get("alarmType") or sub_t or "")
+                            title_low = raw_title.lower()
+                            is_db = (
+                                sub_t in ("2701", "20007", "10054", "10055")
+                                or any(kw in title_low for kw in ("doorbell", "campanello", "chiamata", "squillo", "citofono", "door_bell"))
+                            )
+                            resolved_type = "Doorbell" if is_db else (raw_title or sub_t)
                             result.append(
                                 {
-                                    "alarm_id": msg.get("msgId", ""),
-                                    "alarm_type": msg.get("title")
-                                    or msg.get("sampleName")
-                                    or msg.get("alarmType", ""),
+                                    "alarm_id": msg.get("msgId") or msg.get("id", ""),
+                                    "alarm_type": resolved_type,
+                                    "sub_type": sub_t,
                                     "alarm_time": msg.get("timeStr")
                                     or msg.get("msgTimeStr")
                                     or msg.get("alarmStartTimeStr")
@@ -967,7 +997,7 @@ class EzvizClient:
                                     "alarm_pic_url": msg.get("pic")
                                     or msg.get("picUrl")
                                     or msg.get("alarmPicUrl", ""),
-                                    "device_serial": msg.get("deviceSerial", ""),
+                                    "device_serial": msg.get("deviceSerial", self.camera_serial),
                                 }
                             )
                     if result:
@@ -990,11 +1020,17 @@ class EzvizClient:
                         for alarm in alarm_list:
                             if not isinstance(alarm, dict):
                                 continue
+                            a_code = str(alarm.get("alarmType", ""))
+                            s_name = str(alarm.get("sampleName") or a_code)
+                            is_db = (
+                                a_code in ("2701", "20007", "10054", "10055")
+                                or any(kw in s_name.lower() for kw in ("doorbell", "campanello", "chiamata", "squillo", "citofono"))
+                            )
                             result.append(
                                 {
                                     "alarm_id": alarm.get("alarmId", ""),
-                                    "alarm_type": alarm.get("sampleName")
-                                    or alarm.get("alarmType", ""),
+                                    "alarm_type": "Doorbell" if is_db else s_name,
+                                    "sub_type": a_code,
                                     "alarm_time": alarm.get("alarmStartTimeStr")
                                     or (datetime.fromtimestamp(int(alarm["alarmStartTime"])/1000).strftime("%Y-%m-%d %H:%M:%S") if alarm.get("alarmStartTime") else ""),
                                     "alarm_pic_url": alarm.get("alarmPicUrl", ""),
