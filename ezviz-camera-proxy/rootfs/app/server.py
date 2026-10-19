@@ -632,7 +632,8 @@ _snapshot_error: str = ""
 _status_error: str = ""
 _last_snapshot_time: datetime | None = None
 ezviz_mqtt = None
-_seen_events: set | None = None
+_seen_events: set = set()
+_seen_events_lock = threading.Lock()
 _last_event_trigger_time: float = 0
 _last_auth_fail_time: float = 0
 _live_stream_cache: dict = {"url": "", "expire": 0}
@@ -708,13 +709,83 @@ def _fetch_snapshot_on_event(ev_id: str | None = None) -> bool:
         logger.error("Failed to fetch snapshot on event: %s", e)
     return False
 
+def publish_alarm_to_ha_mqtt(ev_id: str, event_type: str, alert_code: int, alert_text: str, is_alarm: bool, attr_data: dict, push_time: str):
+    """Publish an alarm (motion/doorbell/alarm) to Home Assistant MQTT topics."""
+    mqtt_host = os.environ.get("MQTT_HOST")
+    if not mqtt_host:
+        logger.info("⚠️ MQTT_HOST not set, skipping local MQTT publish")
+        return
+
+    mqtt_port = int(os.environ.get("MQTT_PORT", 1883))
+    mqtt_user = os.environ.get("MQTT_USER", "")
+    mqtt_pass = os.environ.get("MQTT_PASSWORD", "")
+    auth = {'username': mqtt_user, 'password': mqtt_pass} if mqtt_user else None
+
+    if event_type == "doorbell":
+        global _last_doorbell_time
+        _last_doorbell_time = push_time
+
+    main_topic = f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_{event_type}/state"
+    global_topic = f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_alarm/state"
+    user_topic = f"homeassistant/camera/ezviz/{CAMERA_SERIAL}/{event_type}"
+
+    try:
+        # Publish 'ON' to specific sensor
+        for t in [main_topic, user_topic]:
+            publish.single(t, "ON", hostname=mqtt_host, port=mqtt_port, auth=auth)
+
+        # ONLY trigger global Alarm topic if it's a real problem event
+        if is_alarm:
+            logger.info("⚡ TRIGGERING GLOBAL ALARM for code %s", alert_code)
+            publish.single(global_topic, "ON", hostname=mqtt_host, port=mqtt_port, auth=auth)
+
+        # Build attribute payload
+        payload_attr = attr_data.copy() if isinstance(attr_data, dict) else {}
+        if "ext" in payload_attr and isinstance(payload_attr["ext"], dict):
+            payload_attr.update(payload_attr.pop("ext"))
+
+        # Add direct video endpoints
+        payload_attr["image_url"] = ingress_url(f"/api/events/image/{ev_id}")
+        payload_attr["video_url"] = ingress_url(f"/api/events/video/{ev_id}")
+        payload_attr["clip_url"] = ingress_url(f"/api/events/clip/{ev_id}")
+        payload_attr["player_url"] = ingress_url(f"/player?alarm_id={ev_id}")
+
+        # Shorten long URLs to prevent Home Assistant >255 char state errors
+        for k, v in list(payload_attr.items()):
+            if isinstance(v, str) and v.startswith("http") and len(v) > 200:
+                payload_attr[k] = ingress_url(f"/api/events/image/{ev_id}")
+
+        attr_topic = main_topic.replace("/state", "/attributes")
+        publish.single(attr_topic, json.dumps(payload_attr), hostname=mqtt_host, port=mqtt_port, auth=auth)
+
+        global_attr_topic = global_topic.replace("/state", "/attributes")
+        publish.single(global_attr_topic, json.dumps(payload_attr), hostname=mqtt_host, port=mqtt_port, auth=auth)
+
+        logger.info("⚡ Real-time Push: Published %s event (code %s, id %s)", event_type, alert_code, ev_id)
+
+        # Reset to 'OFF' after 5 seconds
+        def _reset_mqtt():
+            time.sleep(5)
+            try:
+                for t in [main_topic, user_topic]:
+                    publish.single(t, "OFF", hostname=mqtt_host, port=mqtt_port, auth=auth)
+                if is_alarm:
+                    publish.single(global_topic, "OFF", hostname=mqtt_host, port=mqtt_port, auth=auth)
+            except Exception:
+                pass
+        threading.Thread(target=_reset_mqtt, daemon=True).start()
+
+    except Exception as e:
+        logger.error("⚡ Real-time Push failed to publish to HA MQTT: %s", e)
+
+
 def _on_ezviz_push_message(msg):
     """Callback triggered instantly by Ezviz Cloud when motion/doorbell occurs."""
     if not ENABLE_MQTT_EVENTS:
         return
-    
+
     logger.info("⚡ Real-time Push Message received: %s", json.dumps(msg))
-    
+
     ext = msg.get("ext", {}) if isinstance(msg.get("ext"), dict) else {}
     channel_type = str(ext.get("channel_type") or "")
 
@@ -733,7 +804,7 @@ def _on_ezviz_push_message(msg):
     raw_msg_id = ext.get("msgId") or ext.get("calling_id") or (ext.get("default_pic_url") if channel_type == "14" and not str(ext.get("default_pic_url", "")).startswith("http") else None)
     raw_push_id = msg.get("id") or msg.get("extras", {}).get("ticket")
     ev_id = raw_msg_id or raw_push_id
-    
+
     # Capture the exact time from the push message if available (normalize '+' from DoorBellPushAlarm)
     push_time = (ext.get("time") or "").replace("+", " ")
     if not push_time:
@@ -744,15 +815,15 @@ def _on_ezviz_push_message(msg):
         ev_id = f"push_{msg.get('alert', 'Event')}_{push_time}".replace(" ", "_").replace(":", "-")
     ev_id = str(ev_id)
     alt_id = str(raw_push_id) if raw_push_id else ""
-    
-    global _seen_events
-    if _seen_events is None:
-        _seen_events = set()
-    
-    if ev_id not in _seen_events and (not alt_id or alt_id not in _seen_events):
-        _seen_events.add(ev_id)
-        if alt_id:
-            _seen_events.add(alt_id)
+
+    with _seen_events_lock:
+        already_seen = ev_id in _seen_events or (alt_id and alt_id in _seen_events)
+        if not already_seen:
+            _seen_events.add(ev_id)
+            if alt_id:
+                _seen_events.add(alt_id)
+
+    if not already_seen:
         logger.info("⚡ New event %s detected (channel_type: %s, type: %s). Processing...", ev_id, channel_type, ext.get("alert_type_code"))
 
         # Determine event type & extract image URL from push payload
@@ -844,77 +915,20 @@ def _on_ezviz_push_message(msg):
             _last_event_trigger_time = now
 
         # 4. Publish to local HA MQTT now that the new snapshot is ready on disk
-        mqtt_host = os.environ.get("MQTT_HOST")
-        if not mqtt_host:
-            logger.info("⚠️ MQTT_HOST not set, skipping local MQTT publish")
-            return
-
-        mqtt_port = int(os.environ.get("MQTT_PORT", 1883))
-        mqtt_user = os.environ.get("MQTT_USER", "")
-        mqtt_pass = os.environ.get("MQTT_PASSWORD", "")
-        auth = {'username': mqtt_user, 'password': mqtt_pass} if mqtt_user else None
-        
         # Alarm/Problem: tamper (12021, 12027), smoke (10005), signal loss (10101), error (10115) etc.
         is_alarm = alert_code in [10005, 10101, 10115, 12021, 12027] or "Tamper" in alert_text
-        
         event_type = "doorbell" if is_doorbell else "motion"
-        if is_doorbell:
-            global _last_doorbell_time
-            _last_doorbell_time = push_time
-        
         logger.info("⚡ Push Event: channel_type=%s, code=%s, type=%s, msg=%s, is_alarm=%s", channel_type, alert_code, event_type, alert_text, is_alarm)
-        
-        main_topic = f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_{event_type}/state"
-        global_topic = f"homeassistant/binary_sensor/ezviz_{CAMERA_SERIAL}_alarm/state"
-        user_topic = f"homeassistant/camera/ezviz/{CAMERA_SERIAL}/{event_type}"
-        
-        try:
-            # Publish 'ON' to specific sensor
-            for t in [main_topic, user_topic]:
-                publish.single(t, "ON", hostname=mqtt_host, port=mqtt_port, auth=auth)
-            
-            # ONLY trigger global Alarm topic if it's a real problem event
-            if is_alarm:
-                logger.info("⚡ TRIGGERING GLOBAL ALARM for code %s", alert_code)
-                publish.single(global_topic, "ON", hostname=mqtt_host, port=mqtt_port, auth=auth)
-            
-            # Attributes topic - Flatten 'ext' into top-level
-            attr_data = msg.copy()
-            if "ext" in attr_data and isinstance(attr_data["ext"], dict):
-                attr_data.update(attr_data.pop("ext"))
 
-            # Add direct video endpoints
-            attr_data["image_url"] = ingress_url(f"/api/events/image/{ev_id}")
-            attr_data["video_url"] = ingress_url(f"/api/events/video/{ev_id}")
-            attr_data["clip_url"] = ingress_url(f"/api/events/clip/{ev_id}")
-            attr_data["player_url"] = ingress_url(f"/player?alarm_id={ev_id}")
-
-            # Shorten long URLs to prevent Home Assistant >255 char state errors
-            for k, v in list(attr_data.items()):
-                if isinstance(v, str) and v.startswith("http") and len(v) > 200:
-                    attr_data[k] = ingress_url(f"/api/events/image/{ev_id}")
-            
-            attr_topic = main_topic.replace("/state", "/attributes")
-            publish.single(attr_topic, json.dumps(attr_data), hostname=mqtt_host, port=mqtt_port, auth=auth)
-            
-            global_attr_topic = global_topic.replace("/state", "/attributes")
-            publish.single(global_attr_topic, json.dumps(attr_data), hostname=mqtt_host, port=mqtt_port, auth=auth)
-            
-            logger.info("⚡ Real-time Push: Published %s event (code %s)", event_type, alert_code)
-            
-            # Reset to 'OFF' after 5 seconds
-            def _reset_mqtt():
-                time.sleep(5)
-                try:
-                    for t in [main_topic, user_topic]:
-                        publish.single(t, "OFF", hostname=mqtt_host, port=mqtt_port, auth=auth)
-                    if is_alarm:
-                        publish.single(global_topic, "OFF", hostname=mqtt_host, port=mqtt_port, auth=auth)
-                except: pass
-            threading.Thread(target=_reset_mqtt, daemon=True).start()
-
-        except Exception as e:
-            logger.error("⚡ Real-time Push failed to publish to HA MQTT: %s", e)
+        publish_alarm_to_ha_mqtt(
+            ev_id=ev_id,
+            event_type=event_type,
+            alert_code=alert_code,
+            alert_text=alert_text,
+            is_alarm=is_alarm,
+            attr_data=msg,
+            push_time=push_time,
+        )
 
         # Trigger deferred event refresh and video clip generation in background
         def _deferred_event_refresh():
@@ -1062,13 +1076,25 @@ def _snapshot_worker():
                 _send_mqtt_discovery()
 
                 # Start real-time push listener once logged in
-                if ENABLE_MQTT_EVENTS and ezviz_mqtt is None:
-                    try:
-                        logger.info("⚡ Subscribing to Ezviz Cloud real-time push events...")
-                        ezviz_mqtt = client._client.get_mqtt_client(on_message_callback=_on_ezviz_push_message)
-                        ezviz_mqtt.connect()
-                    except Exception as mqtt_err:
-                        logger.error("Failed to start Ezviz Cloud MQTT push: %s", mqtt_err)
+                if ENABLE_MQTT_EVENTS:
+                    need_connect = False
+                    if ezviz_mqtt is None:
+                        try:
+                            logger.info("⚡ Subscribing to Ezviz Cloud real-time push events...")
+                            ezviz_mqtt = client._client.get_mqtt_client(on_message_callback=_on_ezviz_push_message)
+                            need_connect = True
+                        except Exception as mqtt_err:
+                            logger.error("Failed to initialize Ezviz Cloud MQTT push: %s", mqtt_err)
+                    elif ezviz_mqtt.mqtt_client is None or not ezviz_mqtt.mqtt_client.is_connected():
+                        logger.info("⚡ Ezviz Cloud MQTT push client disconnected, attempting reconnection...")
+                        need_connect = True
+
+                    if need_connect and ezviz_mqtt is not None:
+                        try:
+                            ezviz_mqtt.connect()
+                            logger.info("⚡ Ezviz Cloud real-time push connected successfully")
+                        except Exception as conn_err:
+                            logger.error("Failed to connect Ezviz Cloud MQTT push: %s", conn_err)
 
             # Fetch status first (lighter call, also provides last_alarm_pic)
             try:
@@ -1108,6 +1134,50 @@ def _snapshot_worker():
                 polled_events = client.get_alarm_list(max_count=20)
                 if polled_events:
                     _event_store.add_events(polled_events)
+
+                    # Hybrid Polling Fallback: Check if any recent event (<90s) wasn't processed by push MQTT
+                    if ENABLE_MQTT_EVENTS:
+                        for pe in polled_events:
+                            pe_id = str(pe.get("alarm_id") or "")
+                            if not pe_id:
+                                continue
+                            pe_time = pe.get("alarm_time") or ""
+                            age_s = _event_store.event_age_seconds(pe_time)
+                            if age_s > 90:
+                                continue
+
+                            with _seen_events_lock:
+                                if pe_id in _seen_events:
+                                    continue
+                                _seen_events.add(pe_id)
+
+                            raw_code = pe.get("sub_type") or pe.get("alarm_type") or "0"
+                            try:
+                                alert_code = int(raw_code)
+                            except (ValueError, TypeError):
+                                alert_code = 0
+                            pe_type_str = str(pe.get("alarm_type") or "")
+                            is_doorbell = (
+                                alert_code in (2701, 20007, 10054, 10055)
+                                or any(kw in pe_type_str.lower() for kw in ("doorbell", "campanello", "chiamata", "squillo", "citofono", "door_bell"))
+                            )
+                            event_type = "doorbell" if is_doorbell else "motion"
+                            is_alarm = alert_code in [10005, 10101, 10115, 12021, 12027] or "Tamper" in pe_type_str
+
+                            logger.info(
+                                "⚡ [Polling Fallback] Detected unnotified fresh event %s (age=%.1fs, type=%s, code=%s). Triggering HA MQTT...",
+                                pe_id, age_s, event_type, alert_code
+                            )
+
+                            publish_alarm_to_ha_mqtt(
+                                ev_id=pe_id,
+                                event_type=event_type,
+                                alert_code=alert_code,
+                                alert_text=pe_type_str or "Event",
+                                is_alarm=is_alarm,
+                                attr_data=pe,
+                                push_time=pe_time,
+                            )
             except Exception as e:
                 logger.error("Event fetch failed: %s", e)
         except EzvizAuthError as e:
@@ -1128,15 +1198,14 @@ def _snapshot_worker():
 
         # Back off if we're seeing many consecutive errors
         if consecutive_errors > 5:
-            base_interval = SNAPSHOT_INTERVAL if SNAPSHOT_INTERVAL > 0 else 60
+            base_interval = SNAPSHOT_INTERVAL if SNAPSHOT_INTERVAL > 0 else 20
             backoff = min(300, base_interval * consecutive_errors)
             logger.warning("Many consecutive errors (%d), backing off %ds",
                           consecutive_errors, backoff)
             time.sleep(backoff)
         else:
-            # Sleep SNAPSHOT_INTERVAL, but at least every 300s (5m) for status if snapshots are off
-            # Status polling is cloud-only, but we don't need it every minute when Push is active.
-            sleep_time = SNAPSHOT_INTERVAL if SNAPSHOT_INTERVAL > 0 else 300
+            # Sleep SNAPSHOT_INTERVAL if > 0, otherwise poll cloud events every 20s
+            sleep_time = SNAPSHOT_INTERVAL if SNAPSHOT_INTERVAL > 0 else 20
             time.sleep(sleep_time)
 
 

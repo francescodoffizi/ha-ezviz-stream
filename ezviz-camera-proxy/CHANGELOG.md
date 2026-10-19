@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.8.2] — 2026-10-19
+
+### Fixed & Improved
+- **Affidabilità Notifiche Movimento e Riconnessione Push MQTT (`server.py`)**:
+  - **Root Cause**:
+    1. Quando `snapshot_interval` è impostato a 0, il worker in background dormiva 300 secondi (5 minuti). In caso di socket push TCP in stallo o mancata ricezione dal push broker di Francoforte (`ieuopen.ezvizlife.com`), le notifiche di movimento restavano silenti fino al polling successivo.
+    2. Il loop di polling del worker scaricava gli allarmi dall'API Ezviz Cloud (`get_alarm_list`) memorizzandoli in `EventStore`, ma **non pubblicava alcun messaggio MQTT verso Home Assistant**. Solo il callback `_on_ezviz_push_message` effettuava la pubblicazione su `homeassistant/binary_sensor/ezviz_<serial>_motion/state`.
+    3. Il socket push `ezviz_mqtt` non eseguiva health check né riconnessione automatica se la sessione veniva chiusa dal broker.
+  - **Soluzione**:
+    1. Estratta la logica di pubblicazione MQTT in `publish_alarm_to_ha_mqtt()` condivisa e thread-safe.
+    2. Implementato **fallback ibrido polling $\leftrightarrow$ MQTT**: nel loop del worker (eseguito ogni 20 secondi anche con `snapshot_interval: 0` senza risvegliare la telecamera), se viene rilevato un evento recente ($\le 90\text{s}$) non ancora notificato da push MQTT, viene pubblicato istantaneamente lo stato `ON`/`OFF` e gli attributi su Home Assistant.
+    3. Aggiunto controllo continuo di connessione e riconnessione automatica (`ezviz_mqtt.connect()`) nel worker per il client MQTT push di Ezviz.
+    4. Sincronizzato l'accesso e la deduplica a `_seen_events` con `threading.Lock`.
+
+---
+
 ## [1.8.1] — 2026-10-19
 
 ### Fixed
