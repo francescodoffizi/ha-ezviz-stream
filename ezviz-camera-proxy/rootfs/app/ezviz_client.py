@@ -229,6 +229,152 @@ class EzvizClient:
 
         return None
 
+    def get_event_record_info(self, alarm_time_str: str) -> dict | None:
+        """
+        Query /api/lapp/video/by/time to find the autonomous video recording
+        (CloudPlay recType=1 or MicroSD recType=2) matching the alarm timestamp.
+        Note: Ezviz /api/lapp/video/by/time encodes the camera's local wall-clock
+        time as UTC epoch milliseconds.
+        """
+        token = self.get_open_access_token()
+        if not token or not alarm_time_str:
+            return None
+
+        try:
+            ev_dt_wall = datetime.strptime(alarm_time_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            ev_ms = int(ev_dt_wall.timestamp() * 1000)
+        except Exception as e:
+            logger.warning("get_event_record_info: invalid alarm_time_str '%s': %s", alarm_time_str, e)
+            return None
+
+        url = f"{self.open_domain}/api/lapp/video/by/time"
+        search_start = ev_ms - 90000
+        search_end = ev_ms + 180000
+
+        # Try CloudPlay (recType=1) first, then Local MicroSD (recType=2)
+        for rec_type in (1, 2):
+            payload = {
+                "accessToken": token,
+                "deviceSerial": self.camera_serial,
+                "channelNo": 1,
+                "startTime": search_start,
+                "endTime": search_end,
+                "recType": rec_type,
+            }
+            try:
+                resp = requests.post(url, data=payload, timeout=10, verify=False)
+                data = resp.json()
+                if data.get("code") in ["10002", 10002] and self.app_key and self.app_secret:
+                    self._open_token_expire_time = 0
+                    token = self.get_open_access_token()
+                    payload["accessToken"] = token
+                    resp = requests.post(url, data=payload, timeout=10, verify=False)
+                    data = resp.json()
+
+                if data.get("code") != "200":
+                    continue
+
+                records = data.get("data") or []
+                if not isinstance(records, list) or not records:
+                    continue
+
+                best_rec = None
+                best_diff = 999999999
+                for item in records:
+                    if not isinstance(item, dict):
+                        continue
+                    st_ms = int(item.get("startTime") or 0)
+                    et_ms = int(item.get("endTime") or 0)
+                    if not st_ms or not et_ms or et_ms <= st_ms:
+                        continue
+                    # Match if alarm time is within [startTime - 25s, endTime + 25s] or startTime is within [-30s, +45s]
+                    diff = abs(st_ms - ev_ms)
+                    in_window = (st_ms - 25000) <= ev_ms <= (et_ms + 25000) or (-30000 <= (st_ms - ev_ms) <= 45000)
+                    if in_window and diff < best_diff:
+                        best_diff = diff
+                        best_rec = item
+
+                if best_rec:
+                    st_ms = int(best_rec["startTime"])
+                    et_ms = int(best_rec["endTime"])
+                    start_str = datetime.fromtimestamp(st_ms / 1000.0, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                    stop_str = datetime.fromtimestamp(et_ms / 1000.0, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                    duration_s = max(5, min(60, int(round((et_ms - st_ms) / 1000.0))))
+                    info = {
+                        "rec_type": rec_type,
+                        "addr_type": 3 if rec_type == 1 else 2,
+                        "start_ms": st_ms,
+                        "end_ms": et_ms,
+                        "start_time": start_str,
+                        "stop_time": stop_str,
+                        "duration_s": duration_s,
+                        "file_id": best_rec.get("fileId"),
+                    }
+                    logger.info(
+                        "Found autonomous event recording (recType=%d) for alarm %s: %s -> %s (%ds)",
+                        rec_type, alarm_time_str, start_str, stop_str, duration_s
+                    )
+                    return info
+            except Exception as e:
+                logger.warning("Error querying /api/lapp/video/by/time (recType=%d): %s", rec_type, e)
+
+        return None
+
+    def get_playback_stream_url(
+        self,
+        start_time: str,
+        stop_time: str,
+        addr_type: int = 3,
+        protocol: int = 3,
+    ) -> str | None:
+        """
+        Get OpenPlayback (/v3/openpb/) stream URL for a recorded event clip.
+        - addr_type: 3 = CloudPlay playback, 2 = MicroSD playback
+        - protocol:  3 = RTMP (clean EOF on clip end), 4 = HTTP-FLV
+        Note: protocol=2 (HLS) on Ezviz OpenAPI returns /v3/openlive/ (live feed)
+        instead of /v3/openpb/ (playback), so RTMP (3) or FLV (4) must be used.
+        """
+        token = self.get_open_access_token()
+        if not token:
+            logger.warning("No Open Platform AccessToken available for playback stream")
+            return None
+
+        url = f"{self.open_domain}/api/lapp/v2/live/address/get"
+        payload = {
+            "accessToken": token,
+            "deviceSerial": self.camera_serial,
+            "channelNo": 1,
+            "protocol": protocol,
+            "type": addr_type,
+            "startTime": start_time,
+            "stopTime": stop_time,
+        }
+
+        try:
+            logger.info(
+                "Requesting playback stream URL (type=%d, proto=%d, start=%s, stop=%s)...",
+                addr_type, protocol, start_time, stop_time
+            )
+            resp = requests.post(url, data=payload, timeout=12, verify=False)
+            data = resp.json()
+            if data.get("code") in ["10002", 10002] and self.app_key and self.app_secret:
+                self._open_token_expire_time = 0
+                payload["accessToken"] = self.get_open_access_token()
+                resp = requests.post(url, data=payload, timeout=12, verify=False)
+                data = resp.json()
+
+            if data.get("code") == "200" and (data.get("data") or {}).get("url"):
+                stream_url = data["data"]["url"]
+                logger.info("Successfully obtained playback stream URL: %s", stream_url)
+                return stream_url
+            else:
+                logger.warning("Ezviz Open Platform returned error for playback stream: %s", data)
+        except Exception as e:
+            logger.error("Error requesting playback stream address: %s", e)
+
+        return None
+
+
 
     # ------------------------------------------------------------------
     # Authentication

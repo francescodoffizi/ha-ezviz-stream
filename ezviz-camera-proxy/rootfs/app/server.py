@@ -327,7 +327,12 @@ class EventStore:
             logger.error("Event image processor failed: %s", e)
 
     def generate_clip(self, alarm_id: str) -> bool:
-        """Generate MP4 clip for a specific event via ffmpeg ONLY while the event is happening live."""
+        """
+        Generate MP4 clip for a specific event via ffmpeg:
+        1. Primary: retrieve the camera's autonomous event recording (CloudPlay recType=1 or MicroSD recType=2,
+           which includes the 5s pre-buffer and full subject approach) via /api/lapp/video/by/time and OpenPlayback (/v3/openpb/).
+        2. Fallback: if no recording is indexed and the event is currently active (<= 90s), capture from the live HLS stream.
+        """
         if not shutil.which("ffmpeg"):
             logger.warning("ffmpeg not found, cannot generate clip")
             return False
@@ -354,30 +359,161 @@ class EventStore:
             if not ev_time:
                 return False
 
-            age_s = self.event_age_seconds(ev_time)
-            if age_s > 120:
-                logger.info(
-                    "Skipping clip generation for past event %s (age=%.0fs > 120s): CS-HP2 HLS stream is live-only",
-                    alarm_id_str,
-                    age_s,
-                )
-                return False
-
             try:
                 ev_dt = datetime.strptime(ev_time, "%Y-%m-%d %H:%M:%S")
-                start_str = (ev_dt - timedelta(seconds=10)).strftime("%Y-%m-%d %H:%M:%S")
-                stop_str = (ev_dt + timedelta(seconds=35)).strftime("%Y-%m-%d %H:%M:%S")
+                ev_ts = ev_dt.timestamp()
             except Exception as te:
                 logger.warning("Error parsing event time '%s': %s", ev_time, te)
                 return False
 
-            client = get_client()
-            stream_url = client.get_hls_stream_url(start_time=start_str, stop_time=stop_str)
-            if not stream_url:
-                logger.warning("Could not obtain HLS stream URL for event %s", alarm_id_str)
+            age_s = self.event_age_seconds(ev_time)
+            if age_s > 86400:
+                logger.info("Skipping clip generation for old event %s (age=%.0fs > 86400s)", alarm_id_str, age_s)
                 return False
 
-            # Pre-check that the camera HLS playlist has active .ts segments before launching ffmpeg
+            client = get_client()
+            tmp_out = EVENT_VIDEO_PATH / f"tmp_{alarm_id_str}.mp4"
+
+            # 1. Wait for the camera to finish its 10-16s autonomous event recording and index it on CloudPlay/SD
+            if 0 <= age_s < 16:
+                wait_s = max(1.0, 16.0 - age_s)
+                logger.info(
+                    "⏳ Waiting %.1fs for camera to complete autonomous event recording for %s...",
+                    wait_s, alarm_id_str
+                )
+                time.sleep(wait_s)
+
+            rec_info = None
+            max_polls = 6 if self.event_age_seconds(ev_time) < 60 else 1
+            for poll_idx in range(max_polls):
+                rec_info = client.get_event_record_info(ev_time)
+                if rec_info:
+                    # Ensure the recording end time has already passed before pulling playback stream
+                    rec_end_dt = datetime.strptime(rec_info["stop_time"], "%Y-%m-%d %H:%M:%S")
+                    rem_s = (rec_end_dt - datetime.now()).total_seconds()
+                    if rem_s > 0 and rem_s <= 20:
+                        logger.info("⏳ Recording %s still in progress, waiting %.1fs...", alarm_id_str, rem_s + 1.5)
+                        time.sleep(rem_s + 1.5)
+                    break
+                if poll_idx < max_polls - 1:
+                    logger.info(
+                        "⏳ Autonomous recording not indexed yet for %s (poll %d/%d), waiting 3s...",
+                        alarm_id_str, poll_idx + 1, max_polls
+                    )
+                    time.sleep(3.0)
+
+            # 2. Primary Path: Download autonomous recorded playback clip (CloudPlay type=3 or MicroSD type=2)
+            if rec_info:
+                start_str = rec_info["start_time"]
+                stop_str = rec_info["stop_time"]
+                dur_s = rec_info.get("duration_s", 20)
+                addr_types = [rec_info["addr_type"]]
+                if 2 not in addr_types:
+                    addr_types.append(2)
+
+                for addr_t in addr_types:
+                    for proto in (3, 4):  # 3 = RTMP (/v3/openpb/), 4 = HTTP-FLV (/v3/openpb/)
+                        pb_url = client.get_playback_stream_url(
+                            start_time=start_str,
+                            stop_time=stop_str,
+                            addr_type=addr_t,
+                            protocol=proto,
+                        )
+                        if not pb_url:
+                            continue
+
+                        logger.info(
+                            "⚡ Exporting recorded playback clip (%s -> %s, %ds, type=%d, proto=%d) for event %s...",
+                            start_str, stop_str, dur_s, addr_t, proto, alarm_id_str
+                        )
+                        # Normalize to 1280x720 H.264 because CS-HP2 CloudPlay recordings switch SPS/PPS
+                        # from 3712x2160 (pre-buffer burst) to 1280x720 mid-stream, which breaks iOS -c copy playback
+                        cmd_Lists = [
+                            [
+                                "ffmpeg", "-y",
+                                "-i", pb_url,
+                                "-vf", "scale=1280:720",
+                                "-c:v", "libx264",
+                                "-preset", "ultrafast",
+                                "-crf", "23",
+                                "-pix_fmt", "yuv420p",
+                                "-c:a", "aac",
+                                "-movflags", "+faststart",
+                                "-t", str(dur_s + 4),
+                                str(tmp_out),
+                            ],
+                            [
+                                "ffmpeg", "-y",
+                                "-i", pb_url,
+                                "-c", "copy",
+                                "-movflags", "+faststart",
+                                "-t", str(dur_s + 4),
+                                str(tmp_out),
+                            ],
+                        ]
+                        for cmd in cmd_Lists:
+                            try:
+                                if tmp_out.exists():
+                                    tmp_out.unlink()
+                                proc = subprocess.run(
+                                    cmd,
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL,
+                                    timeout=max(35, dur_s + 20),
+                                )
+                                if tmp_out.exists() and tmp_out.stat().st_size > 10000:
+                                    tmp_out.replace(out_path)
+                                    # Align file mtime with the event window so is_valid_video always validates it
+                                    os.utime(out_path, (ev_ts + dur_s, ev_ts + dur_s))
+                                    logger.info(
+                                        "✅ Successfully exported autonomous playback clip: %s (%d bytes)",
+                                        out_path.name, out_path.stat().st_size
+                                    )
+                                    with self.lock:
+                                        for e in self.events:
+                                            if str(e.get("alarm_id")) == alarm_id_str:
+                                                e["local_video"] = True
+                                                break
+                                    return True
+                            except subprocess.TimeoutExpired:
+                                # With HTTP-FLV (proto=4), server may hold socket open after sending all frames;
+                                # check if tmp_out already contains a valid clip
+                                if tmp_out.exists() and tmp_out.stat().st_size > 50000:
+                                    tmp_out.replace(out_path)
+                                    os.utime(out_path, (ev_ts + dur_s, ev_ts + dur_s))
+                                    logger.info(
+                                        "✅ Saved playback clip after stream timeout: %s (%d bytes)",
+                                        out_path.name, out_path.stat().st_size
+                                    )
+                                    with self.lock:
+                                        for e in self.events:
+                                            if str(e.get("alarm_id")) == alarm_id_str:
+                                                e["local_video"] = True
+                                                break
+                                    return True
+                                if tmp_out.exists():
+                                    tmp_out.unlink()
+                            except Exception as fe:
+                                if tmp_out.exists():
+                                    tmp_out.unlink()
+                                logger.warning("Playback ffmpeg attempt failed for %s: %s", alarm_id_str, fe)
+
+            # 3. Fallback Path: Live HLS stream capture if no recorded clip was found and event is still recent
+            if self.event_age_seconds(ev_time) > 120:
+                logger.info(
+                    "No CloudPlay/SD recording found for past event %s (age=%.0fs > 120s), skipping live fallback",
+                    alarm_id_str, self.event_age_seconds(ev_time)
+                )
+                return False
+
+            logger.info("⚠️ No autonomous recording found for %s, falling back to live HLS stream...", alarm_id_str)
+            start_str = (ev_dt - timedelta(seconds=10)).strftime("%Y-%m-%d %H:%M:%S")
+            stop_str = (ev_dt + timedelta(seconds=35)).strftime("%Y-%m-%d %H:%M:%S")
+            stream_url = client.get_hls_stream_url(start_time=start_str, stop_time=stop_str)
+            if not stream_url:
+                logger.warning("Could not obtain fallback HLS stream URL for event %s", alarm_id_str)
+                return False
+
             for attempt in range(8):
                 try:
                     check_resp = requests.get(stream_url, timeout=4, verify=False, allow_redirects=True)
@@ -388,23 +524,22 @@ class EventStore:
                     pass
                 time.sleep(1.5)
 
-            logger.info("⚡ Recording live MP4 clip (30s) for active event %s...", alarm_id_str)
-            tmp_out = EVENT_VIDEO_PATH / f"tmp_{alarm_id_str}.mp4"
-
+            logger.info("⚡ Recording fallback live MP4 clip (25s) for event %s...", alarm_id_str)
             cmd = [
                 "ffmpeg", "-y",
                 "-timeout", "15000000",
                 "-i", stream_url,
                 "-c", "copy",
                 "-movflags", "+faststart",
-                "-t", "30",
+                "-t", "25",
                 str(tmp_out)
             ]
             try:
-                proc = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=65)
+                proc = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
                 if proc.returncode == 0 and tmp_out.exists() and tmp_out.stat().st_size > 10000:
                     tmp_out.replace(out_path)
-                    logger.info("✅ Successfully generated event video clip: %s (%d bytes)", out_path.name, out_path.stat().st_size)
+                    os.utime(out_path, (ev_ts + 25, ev_ts + 25))
+                    logger.info("✅ Successfully generated fallback live clip: %s (%d bytes)", out_path.name, out_path.stat().st_size)
                     with self.lock:
                         for e in self.events:
                             if str(e.get("alarm_id")) == alarm_id_str:
@@ -414,21 +549,16 @@ class EventStore:
                 else:
                     if tmp_out.exists():
                         tmp_out.unlink()
-                    logger.warning("FFmpeg finished with code %s for event %s", proc.returncode, alarm_id_str)
+                    logger.warning("Fallback FFmpeg finished with code %s for event %s", proc.returncode, alarm_id_str)
                     return False
-            except subprocess.TimeoutExpired:
-                if tmp_out.exists():
-                    tmp_out.unlink()
-                logger.warning("FFmpeg timed out downloading clip for event %s", alarm_id_str)
-                return False
             except Exception as fe:
                 if tmp_out.exists():
                     tmp_out.unlink()
-                logger.error("FFmpeg error on event %s: %s", alarm_id_str, fe)
+                logger.error("Fallback FFmpeg error on event %s: %s", alarm_id_str, fe)
                 return False
 
     def _process_videos(self):
-        """Download MP4 clips only for currently active events (age <= 120s)."""
+        """Download MP4 clips for recent events (up to 6 hours old via CloudPlay playback)."""
         if not shutil.which("ffmpeg"):
             logger.warning("ffmpeg not found, skipping video clip downloads")
             return
@@ -436,8 +566,8 @@ class EventStore:
         try:
             with self.lock:
                 to_process = [
-                    e for e in self.events
-                    if not e.get("local_video") and self.event_age_seconds(e.get("alarm_time", "")) <= 120
+                    e for e in self.events[:5]
+                    if not e.get("local_video") and self.event_age_seconds(e.get("alarm_time", "")) <= 21600
                 ]
 
             for ev in to_process:
@@ -1227,16 +1357,16 @@ def api_event_clip(alarm_id):
     if check_only:
         return jsonify({"ready": False, "status": "processing"}), 200
 
-    # 3. Only wait/generate if the event is currently active (<= 120s old) or already recording
+    # 3. Generate/extract clip from CloudPlay/SD playback (or active recording) for recent events (<= 24h)
     tmp_file = EVENT_VIDEO_PATH / f"tmp_{alarm_id}.mp4"
-    if tmp_file.exists() or (ev_time and _event_store.event_age_seconds(ev_time) <= 120):
-        logger.info("⚡ Waiting/generating live clip for active alarm %s", alarm_id)
+    if tmp_file.exists() or (ev_time and _event_store.event_age_seconds(ev_time) <= 86400):
+        logger.info("⚡ Waiting/extracting playback clip for alarm %s", alarm_id)
         success = _event_store.generate_clip(alarm_id)
         if success and _event_store.is_valid_video(filepath, ev_time):
             return send_file(filepath, mimetype="video/mp4", as_attachment=True, download_name=f"event_{alarm_id}.mp4")
 
     return jsonify({
-        "error": "Registrazione video MP4 non disponibile per questo evento passato (CS-HP2 supporta solo la cattura live durante l'evento)",
+        "error": "Registrazione video MP4 non disponibile per questo evento.",
         "ready": False,
     }), 404
 
@@ -1257,8 +1387,8 @@ def api_event_video(alarm_id):
         return send_file(filepath, mimetype="video/mp4", conditional=True)
 
     tmp_file = EVENT_VIDEO_PATH / f"tmp_{alarm_id}.mp4"
-    if tmp_file.exists() or (ev_time and _event_store.event_age_seconds(ev_time) <= 120):
-        logger.info("⚡ Event %s clip is currently recording, waiting for completion...", alarm_id)
+    if tmp_file.exists() or (ev_time and _event_store.event_age_seconds(ev_time) <= 86400):
+        logger.info("⚡ Extracting/waiting for event %s playback clip...", alarm_id)
         if _event_store.generate_clip(alarm_id) and _event_store.is_valid_video(filepath, ev_time):
             return send_file(filepath, mimetype="video/mp4", conditional=True)
 

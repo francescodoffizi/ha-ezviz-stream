@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [1.8.0] — 2026-10-19
+
+### Added & Improved
+- **Estrazione Registrazione Autonoma CloudPlay/MicroSD con Pre-Buffer Evento (`ezviz_client.py`, `server.py`)**:
+  - **Causa del ritardo nei video evento**: In precedenza `generate_clip()` catturava il flusso Live HLS (`/api/lapp/v2/live/address/get` con `protocol=2`), che richiede 10–25 secondi per risvegliare lo spioncino CS-HP2 dal deep sleep e negoziare lo stream P2P, registrando solo il vuoto post-evento quando il soggetto era già passato. Inoltre `protocol=2` (HLS) su Ezviz OpenAPI ignora i parametri `type=2`/`type=3` e `startTime`/`stopTime`, restituendo sempre `/v3/openlive/`.
+  - **Soluzione**:
+    1. Aggiunto `get_event_record_info(alarm_time_str)` in `ezviz_client.py` che interroga `/api/lapp/video/by/time` (`recType=1` CloudPlay prioritario, `recType=2` MicroSD fallback) per individuare l'intervallo esatto (`startTime` -> `endTime`, inclusi i 5s di pre-buffer) registrato autonomamente dallo spioncino.
+    2. Aggiunto `get_playback_stream_url()` in `ezviz_client.py` che richiede l'endpoint `/api/lapp/v2/live/address/get` con `protocol=3` (RTMP) o `protocol=4` (HTTP-FLV) e `type=3` (CloudPlay) / `type=2` (MicroSD), ottenendo il vero flusso OpenPlayback (`/v3/openpb/...`).
+    3. Aggiornato `generate_clip(alarm_id)` in `server.py`: attende il completamento della registrazione autonoma di 10–16s della telecamera, scarica il flusso di playback `/v3/openpb/` normalizzandolo a `1280x720` (`libx264`, `yuv420p`, `+faststart`) per piena compatibilità iOS/Safari (poiché lo stream CloudPlay CS-HP2 cambia risoluzione SPS/PPS da `3712x2160` a `1280x720` dopo il pre-buffer), e mantiene il fallback sul flusso Live HLS qualora non risulti alcuna registrazione indicizzata.
 
 ### Fixed & Improved
 - **Riproduzione e Download Video Eventi Reali — Stop Redirect alla Vista Live (`server.py`, `templates/index.html`)**:
