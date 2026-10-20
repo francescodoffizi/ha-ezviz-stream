@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.8.3] — 2026-10-20
+
+### Fixed & Improved
+- **Normalizzazione Etichette Riconoscimento Facciale (`<Nome>appeared` -> `<Nome> appeared`) (`ezviz_client.py`, `server.py`, `templates/index.html`)**:
+  - Risolto il problema per cui gli eventi di rilevamento con nome riconosciuto dal cloud Ezviz apparivano attaccati senza spazio (es. `"Lauraappeared"`, `"Francescoappeared"`).
+  - Aggiunta la funzione `_normalize_alarm_label()` in `ezviz_client.py` e `server.py` (oltre al fallback client-side in `t()`) e preservato il nome riconosciuto durante il merge degli eventi senza sovrascriverlo con il generico `"Face Recognition"` (`sub_type == "12663"`).
+- **Pulizia UI Dashboard (`templates/index.html`)**:
+  - Rimossa la dicitura superflua `"Aggiorno in: Solo Eventis"` dalla barra degli strumenti di *Vista Live*.
+  - Risolto il bug in `pollStatus()` per cui l'indicatore in alto a destra aggiornava il colore del testo in verde senza mai sostituire la scritta segnaposto `"Connessione in corso…"` con lo stato reale (`Online` / `Offline`), allineando anche il rendering SSR iniziale.
+  - Rimosso il badge segnaposto `"Local"` / `"Locale"` dalle righe di *Eventi Recenti* e uniformata l'etichetta del pulsante immagine a `Vedi`.
+
+---
+
 ## [1.8.2] — 2026-10-19
 
 ### Fixed & Improved

@@ -13,6 +13,7 @@ import io
 import json
 import logging
 import os
+import re
 import threading
 import time
 import traceback
@@ -22,6 +23,14 @@ from pathlib import Path
 import requests
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_alarm_label(label: str) -> str:
+    """Fix Ezviz Cloud concatenated strings such as 'Lauraappeared' -> 'Laura appeared'."""
+    if not label:
+        return ""
+    text = str(label).strip()
+    return re.sub(r"(?i)([^\s])(appeared)\b", r"\1 \2", text)
 
 
 class EzvizClientError(Exception):
@@ -621,8 +630,8 @@ class EzvizClient:
                         latest = alarm_list[0]
                         last_alarm_pic = latest.get("alarmPicUrl", "")
                         last_alarm_time = latest.get("alarmStartTimeStr", "")
-                        last_alarm_type = latest.get("sampleName") or latest.get(
-                            "alarmType", ""
+                        last_alarm_type = _normalize_alarm_label(
+                            latest.get("sampleName") or latest.get("alarmType", "")
                         )
                 except Exception as e:
                     logger.debug("Alarm info fetch failed: %s", e)
@@ -976,7 +985,9 @@ class EzvizClient:
                             if not isinstance(msg, dict):
                                 continue
                             sub_t = str(msg.get("subType") or msg.get("sType") or msg.get("alarmType") or "")
-                            raw_title = str(msg.get("title") or msg.get("sampleName") or msg.get("alarmType") or sub_t or "")
+                            raw_title = _normalize_alarm_label(
+                                str(msg.get("title") or msg.get("sampleName") or msg.get("alarmType") or sub_t or "")
+                            )
                             title_low = raw_title.lower()
                             is_db = (
                                 sub_t in ("2701", "20007", "10054", "10055")
@@ -1021,7 +1032,7 @@ class EzvizClient:
                             if not isinstance(alarm, dict):
                                 continue
                             a_code = str(alarm.get("alarmType", ""))
-                            s_name = str(alarm.get("sampleName") or a_code)
+                            s_name = _normalize_alarm_label(str(alarm.get("sampleName") or a_code))
                             is_db = (
                                 a_code in ("2701", "20007", "10054", "10055")
                                 or any(kw in s_name.lower() for kw in ("doorbell", "campanello", "chiamata", "squillo", "citofono"))

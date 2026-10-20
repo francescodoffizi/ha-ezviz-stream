@@ -17,6 +17,7 @@ import io
 import json
 import logging
 import os
+import re
 import subprocess
 import shutil
 import threading
@@ -82,6 +83,15 @@ EVENT_VIDEO_PATH.mkdir(parents=True, exist_ok=True)
 _last_alarm_type = "Mai"
 _last_alarm_time = "Mai"
 _last_doorbell_time = "Mai"
+
+
+def _normalize_alarm_label(label: str) -> str:
+    """Fix Ezviz Cloud concatenated strings such as 'Lauraappeared' -> 'Laura appeared'."""
+    if not label:
+        return ""
+    text = str(label).strip()
+    return re.sub(r"(?i)([^\s])(appeared)\b", r"\1 \2", text)
+
 
 class EventStore:
     """Manages a list of recent events with deduplication and local image caching."""
@@ -160,7 +170,8 @@ class EventStore:
                 if not raw_id: continue
                 
                 ev_id = str(raw_id)
-                raw_type = event.get("alarm_type") or event.get("alarm_name") or "Event"
+                raw_type = _normalize_alarm_label(event.get("alarm_type") or event.get("alarm_name") or "Event")
+                raw_name = _normalize_alarm_label(event.get("alarm_name") or "")
                 sub_type = str(event.get("sub_type") or "")
                 
                 # Normalize types according to Ezviz APK AlarmType.java
@@ -180,7 +191,13 @@ class EventStore:
                     "11514": "Motion",
                     "11502": "Motion",
                 }
-                ev_type = type_map.get(sub_type) or type_map.get(str(raw_type), str(raw_type))
+                if "appeared" in raw_name.lower():
+                    ev_type = raw_name
+                elif "appeared" in raw_type.lower():
+                    ev_type = raw_type
+                else:
+                    ev_type = type_map.get(sub_type) or type_map.get(str(raw_type), str(raw_type))
+                ev_type = _normalize_alarm_label(ev_type)
                 if any(kw in ev_type.lower() for kw in ("doorbell", "campanello", "chiamata", "squillo", "citofono", "door_bell")):
                     ev_type = "Doorbell"
                 ev_time = (event.get("alarm_time") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")).replace("+", " ")
@@ -239,8 +256,9 @@ class EventStore:
                                 pass
                         old["alarm_id"] = ev_id
 
-                    # Merge: prefer better type
-                    generic_codes = ["10120", "12663", "event", "alarm"]
+                    # Merge: prefer better type (and normalize any legacy concatenated label)
+                    old["alarm_type"] = _normalize_alarm_label(old.get("alarm_type", "Event"))
+                    generic_codes = ["10120", "12663", "event", "alarm", "face recognition"]
                     is_gen = lambda t: str(t).lower() in generic_codes or str(t).isdigit()
                     
                     if is_gen(old["alarm_type"]) and not is_gen(ev_type):
@@ -1387,7 +1405,7 @@ def api_status():
     status["last_snapshot"] = _last_snapshot_time.isoformat() if _last_snapshot_time else None
     status["timestamp"] = status["last_snapshot"]
     status["snapshot_interval_s"] = SNAPSHOT_INTERVAL
-    status["last_alarm_type"] = _last_alarm_type
+    status["last_alarm_type"] = _normalize_alarm_label(_last_alarm_type)
     status["last_alarm_time"] = _last_alarm_time
     status["last_doorbell_time"] = _last_doorbell_time
     
@@ -1414,6 +1432,7 @@ def api_events():
     clean_events = []
     for ev in events:
         clean_ev = dict(ev)
+        clean_ev["alarm_type"] = _normalize_alarm_label(clean_ev.get("alarm_type", "Event"))
         pic_url = clean_ev.get("alarm_pic_url", "")
         if pic_url and len(pic_url) > 200:
             clean_ev["alarm_pic_url"] = ingress_url(f"/api/events/image/{ev['alarm_id']}")

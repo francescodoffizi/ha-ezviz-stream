@@ -152,8 +152,8 @@
       </div>
     </div>
     <div id="connection-badge" class="flex items-center gap-2 text-sm">
-      <span class="status-dot unknown" id="online-dot"></span>
-      <span id="online-label" style="color:var(--ha-text-muted)">Connessione in corso…</span>
+      <span class="status-dot {% if status %}{{ 'online' if status.online else 'offline' }}{% else %}unknown{% endif %}" id="online-dot"></span>
+      <span id="online-label" style="color:{% if status %}{{ 'var(--ha-success)' if status.online else 'var(--ha-danger)' }}{% else %}var(--ha-text-muted){% endif %}">{% if status %}{{ 'Online' if status.online else 'Offline' }}{% else %}Connessione in corso…{% endif %}</span>
     </div>
   </div>
 
@@ -176,9 +176,6 @@
       <div class="flex items-center justify-between mb-3">
         <h2 class="font-semibold text-sm uppercase tracking-wide" style="color:var(--ha-text-muted)">Vista Live</h2>
         <div class="flex items-center gap-3">
-          <span class="text-xs" style="color:var(--ha-text-muted)">
-            Aggiorno in: <span class="font-mono" id="countdown">{{ snapshot_interval }}</span>s
-          </span>
           <button class="btn-primary flex items-center gap-2" id="refresh-btn" onclick="manualRefresh()">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round"
@@ -374,10 +371,6 @@
               </div>
             </div>
               <div class="flex items-center gap-2">
-                {% if event.local_pic %}
-                <span class="badge badge-other !bg-green-900/20 !text-green-400 text-[9px]">Local</span>
-                {% endif %}
-                
                 {% if event.local_video %}
                 <button onclick="openPlayer('{{ event.alarm_id }}', false)"
                    class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1"
@@ -408,7 +401,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                   </svg>
-                  Foto
+                  Vedi
                 </button>
                 {% endif %}
               </div>
@@ -445,13 +438,13 @@
 
   <!-- Footer -->
   <div class="mt-6 text-center text-xs" style="color:var(--ha-text-muted)">
-    Ezviz Camera Proxy v1.6.2
+    Ezviz Camera Proxy v1.8.3
     &nbsp;·&nbsp;
     <a href="{{ ingress_url('/api/health') }}" class="underline" style="color:var(--ha-accent)">Salute</a>
     &nbsp;·&nbsp;
     <a href="{{ ingress_url('/api/status') }}" class="underline" style="color:var(--ha-accent)">Stato JSON</a>
     &nbsp;·&nbsp;
-    <a href="https://github.com/gilbert82/ha-ezviz-stream" target="_blank"
+    <a href="https://github.com/francescodoffizi/ha-ezviz-stream" target="_blank"
        class="underline" style="color:var(--ha-accent)">GitHub ↗</a>
   </div>
 
@@ -500,7 +493,9 @@
     };
 
     function t(text) {
-        return TRANSLATIONS[text] || text;
+        if (!text) return text;
+        const normalized = String(text).replace(/([^\s])(appeared)\b/gi, '$1 $2');
+        return TRANSLATIONS[normalized] || TRANSLATIONS[text] || normalized;
     }
 
     // -----------------------------------------------------------------------
@@ -534,12 +529,8 @@
 
     function updateCountdown() {
       if (SNAPSHOT_INTERVAL <= 0 || historyMode) {
-        if (SNAPSHOT_INTERVAL <= 0) {
-          document.getElementById('countdown').textContent = 'Solo Eventi';
-        }
         return;
       }
-      document.getElementById('countdown').textContent = countdown;
       if (countdown <= 0) {
         refreshSnapshot(false);
         countdown = {{ snapshot_interval or 0 }};
@@ -563,7 +554,6 @@
     function startCountdown() {
       clearInterval(countdownTimer);
       if (SNAPSHOT_INTERVAL <= 0) {
-        document.getElementById('countdown').textContent = 'Solo Eventi';
         return;
       }
       countdown = {{ snapshot_interval or 0 }};
@@ -705,6 +695,7 @@
             container.innerHTML = `<p class="text-sm" style="color:var(--ha-danger)"><b>${t('Error')}:</b> ${data.error}</p>`;
           } else {
             dot.className = 'status-dot ' + (data.online ? 'online' : 'offline');
+            label.textContent = data.online ? t('Online') : t('Offline');
             label.style.color = data.online ? 'var(--ha-success)' : 'var(--ha-danger)';
             
             if (data.timestamp) {
@@ -782,7 +773,6 @@
             if (typeStr.includes('doorbell') || typeStr.includes('bell')) badgeClass = 'badge-doorbell';
             
             const imgUrl = e.local_pic ? url('/api/events/image/' + e.alarm_id) : (e.alarm_pic_url || '');
-            const localBadge = e.local_pic ? `<span class="badge badge-other !bg-green-900/20 !text-green-400 text-[9px] mr-1">${t('Locale')}</span>` : '';
             
             html += `<div class="event-row py-3 flex items-center justify-between text-sm">
               <div class="flex items-center gap-3">
@@ -804,7 +794,6 @@
                 </div>
               </div>
               <div class="flex items-center gap-2">
-                ${localBadge}
                 ${e.local_video ? `
                 <button onclick="openPlayer('${e.alarm_id}', false)"
                    class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1"
