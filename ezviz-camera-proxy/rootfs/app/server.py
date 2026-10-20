@@ -93,6 +93,23 @@ def _normalize_alarm_label(label: str) -> str:
     return re.sub(r"(?i)([^\s])(appeared)\b", r"\1 \2", text)
 
 
+def _alarm_type_priority(label: str) -> int:
+    """Return specificity priority so named detections ('Laura appeared') and Doorbell beat generic 'AI Human Detection'."""
+    low = str(label or "").strip().lower()
+    if not low or low.isdigit() or low in ("event", "alarm", "evento", "allarme"):
+        return 0
+    if low in ("motion", "pir", "rilevamento movimento"):
+        return 1
+    if low in ("ai human detection", "face recognition", "doorbell pir", "person detection", "face detection"):
+        return 2
+    if "appeared" in low:
+        return 3
+    if "doorbell" in low or "campanello" in low:
+        return 4
+    return 2
+
+
+
 class EventStore:
     """Manages a list of recent events with deduplication and local image caching."""
     def __init__(self, max_size=20):
@@ -256,12 +273,9 @@ class EventStore:
                                 pass
                         old["alarm_id"] = ev_id
 
-                    # Merge: prefer better type (and normalize any legacy concatenated label)
+                    # Merge: prefer more specific type (Doorbell > '<Name> appeared' > 'AI Human Detection' > 'Motion' > generic)
                     old["alarm_type"] = _normalize_alarm_label(old.get("alarm_type", "Event"))
-                    generic_codes = ["10120", "12663", "event", "alarm", "face recognition"]
-                    is_gen = lambda t: str(t).lower() in generic_codes or str(t).isdigit()
-                    
-                    if is_gen(old["alarm_type"]) and not is_gen(ev_type):
+                    if _alarm_type_priority(ev_type) > _alarm_type_priority(old["alarm_type"]):
                         old["alarm_type"] = ev_type
                     
                     # Merge flags
