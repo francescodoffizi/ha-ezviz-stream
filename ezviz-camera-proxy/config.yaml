@@ -1,5 +1,5 @@
 name: "Ezviz Camera Proxy"
-version: "1.8.4"
+version: "1.8.5"
 slug: ezviz-camera-proxy
 description: "Proxy per telecamere Ezviz (incluso HP2) che non supportano RTSP. Utilizza l'API Ezviz Cloud e Open Platform per istantanee, eventi, video streaming HLS nativo e download automatico clip MP4."
 url: "https://github.com/francescodoffizi/ha-ezviz-stream"
@@ -39,6 +39,8 @@ options:
   snapshot_interval: 60
   enable_mqtt_events: true
   save_event_clips: true
+  video_retention_days: 7
+  max_stored_events: 100
   mqtt_host: ""
   mqtt_port: 1883
   mqtt_user: ""
@@ -57,6 +59,8 @@ schema:
   snapshot_interval: int(0,86400)
   enable_mqtt_events: bool
   save_event_clips: "bool?"
+  video_retention_days: "int(0,365)?"
+  max_stored_events: "int(10,500)?"
   mqtt_host: "str?"
   mqtt_port: "int?"
   mqtt_user: "str?"

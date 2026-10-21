@@ -67,6 +67,8 @@ EZVIZ_ENCRYPTION_KEY = os.environ.get("EZVIZ_ENCRYPTION_KEY", "")
 SNAPSHOT_INTERVAL = int(os.environ.get("SNAPSHOT_INTERVAL", "30"))
 ENABLE_MQTT_EVENTS = os.environ.get("ENABLE_MQTT_EVENTS", "true").lower() == "true"
 SAVE_EVENT_CLIPS = os.environ.get("SAVE_EVENT_CLIPS", "true").lower() == "true"
+VIDEO_RETENTION_DAYS = int(os.environ.get("VIDEO_RETENTION_DAYS", "7"))
+MAX_STORED_EVENTS = int(os.environ.get("MAX_STORED_EVENTS", "100"))
 
 # Ingress support: HA sets INGRESS_ENTRY e.g. "/api/hassio_ingress/abcdef"
 INGRESS_ENTRY = os.environ.get("INGRESS_ENTRY", "/").rstrip("/")
@@ -313,26 +315,74 @@ class EventStore:
                 threading.Thread(target=self._process_videos, daemon=True, name="event-video-processor").start()
 
     def _prune_disk(self):
-        """Delete images and videos from disk that are no longer in self.events or are invalid posthumous clips."""
+        """Delete images and videos from disk that are expired by retention, no longer in self.events, or are invalid."""
         try:
+            now_ts = time.time()
+            max_retention_sec = (VIDEO_RETENTION_DAYS * 86400) if VIDEO_RETENTION_DAYS > 0 else 0
+
+            # 1. Prune events from memory if older than VIDEO_RETENTION_DAYS
+            if max_retention_sec > 0:
+                with self.lock:
+                    retained_events = []
+                    for e in self.events:
+                        age = self.event_age_seconds(e.get("alarm_time", ""))
+                        if age <= max_retention_sec:
+                            retained_events.append(e)
+                    self.events = retained_events
+
             ev_map = {str(e["alarm_id"]): e.get("alarm_time", "") for e in self.events}
+
+            # 2. Prune images
             for f in EVENT_SNAPSHOT_PATH.glob("event_*.jpg"):
                 try:
                     f_id = f.name[6:-4]
-                    if f_id not in ev_map:
+                    f_age = now_ts - f.stat().st_mtime
+                    if (max_retention_sec > 0 and f_age > max_retention_sec) or (f_id not in ev_map):
                         f.unlink()
-                        logger.debug("Pruned old event image: %s", f.name)
-                except: continue
+                        logger.debug("Pruned expired/old event image: %s", f.name)
+                except Exception:
+                    continue
 
+            # 3. Prune videos
             for f in EVENT_VIDEO_PATH.glob("video_*.mp4"):
                 try:
                     f_id = f.name[6:-4]
-                    if f_id not in ev_map or not self.is_valid_video(f, ev_map[f_id]):
+                    f_age = now_ts - f.stat().st_mtime
+                    if (max_retention_sec > 0 and f_age > max_retention_sec) or (f_id not in ev_map) or not self.is_valid_video(f, ev_map.get(f_id, "")):
                         f.unlink()
-                        logger.info("Pruned obsolete or posthumous live video clip: %s", f.name)
-                except: continue
+                        logger.info("Pruned expired/obsolete video clip: %s", f.name)
+                except Exception:
+                    continue
         except Exception as e:
             logger.error("Disk pruning failed: %s", e)
+
+    def delete_event(self, alarm_id: str) -> bool:
+        """Manually delete an event record and its stored video and image files."""
+        alarm_id_str = str(alarm_id).strip()
+        found = False
+        with self.lock:
+            initial_count = len(self.events)
+            self.events = [e for e in self.events if str(e.get("alarm_id")) != alarm_id_str]
+            found = len(self.events) < initial_count
+            
+            # Also clear from clip_locks if present
+            if alarm_id_str in self.clip_locks:
+                del self.clip_locks[alarm_id_str]
+
+        # Remove files from disk
+        v_path = EVENT_VIDEO_PATH / f"video_{alarm_id_str}.mp4"
+        tmp_path = EVENT_VIDEO_PATH / f"tmp_{alarm_id_str}.mp4"
+        img_path = EVENT_SNAPSHOT_PATH / f"event_{alarm_id_str}.jpg"
+        for p in (v_path, tmp_path, img_path):
+            try:
+                if p.exists():
+                    p.unlink()
+                    found = True
+                    logger.info("Deleted event file: %s", p.name)
+            except Exception as e:
+                logger.warning("Error deleting event file %s: %s", p.name, e)
+
+        return found
 
     def _process_images(self):
         """Download images for events that only have cloud URLs."""
@@ -659,7 +709,7 @@ app.config["PREFERRED_URL_SCHEME"] = "http"
 _client: EzvizClient | None = None
 _client_lock = threading.Lock()
 _last_status: dict = {}
-_event_store = EventStore(max_size=30)
+_event_store = EventStore(max_size=MAX_STORED_EVENTS)
 _snapshot_error: str = ""
 _status_error: str = ""
 _last_snapshot_time: datetime | None = None
@@ -1322,10 +1372,13 @@ def index():
         "index.html",
         camera_serial=CAMERA_SERIAL,
         snapshot_interval=SNAPSHOT_INTERVAL,
+        retention_days=VIDEO_RETENTION_DAYS,
+        max_stored_events=MAX_STORED_EVENTS,
         ingress_entry=INGRESS_ENTRY,
         last_snapshot_time=_last_snapshot_time.isoformat() if _last_snapshot_time else None,
         status=_last_status,
         events=events[:10],
+        total_events=len(events),
         snapshot_error=_snapshot_error,
         status_error=_status_error,
     )
@@ -1438,9 +1491,13 @@ def api_status():
 @app.route("/api/events")
 @app.route("/api/events/list")
 def api_events():
-    """Return recent alarm events as JSON."""
+    """Return recent alarm events as JSON with optional pagination (page, limit)."""
     logger.info("⚡ Request: /api/events")
     events = _event_store.get_all()
+    
+    # Query parameters for pagination
+    page_param = request.args.get("page")
+    limit_param = request.args.get("limit")
     
     # Shorten URLs to prevent HA >255 char state errors if mapped
     clean_events = []
@@ -1461,11 +1518,76 @@ def api_events():
         )
         clean_events.append(clean_ev)
         
+    total_events = len(clean_events)
+
+    # If pagination parameters requested
+    if page_param is not None or limit_param is not None:
+        try:
+            page = max(1, int(page_param or 1))
+        except ValueError:
+            page = 1
+        try:
+            limit = max(1, min(100, int(limit_param or 10)))
+        except ValueError:
+            limit = 10
+            
+        start_idx = (page - 1) * limit
+        end_idx = start_idx + limit
+        paginated_events = clean_events[start_idx:end_idx]
+        total_pages = max(1, (total_events + limit - 1) // limit) if total_events > 0 else 1
+
+        return jsonify({
+            "events": paginated_events,
+            "count": len(paginated_events),
+            "total": total_events,
+            "page": page,
+            "limit": limit,
+            "total_pages": total_pages,
+            "retention_days": VIDEO_RETENTION_DAYS,
+            "camera_serial": CAMERA_SERIAL,
+        })
+
     return jsonify({
         "events": clean_events,
-        "count": len(clean_events),
+        "count": total_events,
+        "total": total_events,
+        "page": 1,
+        "limit": total_events,
+        "total_pages": 1,
+        "retention_days": VIDEO_RETENTION_DAYS,
         "camera_serial": CAMERA_SERIAL,
     })
+
+
+@app.route("/api/events/<alarm_id>", methods=["DELETE"])
+def api_event_delete(alarm_id):
+    """Delete an event and its associated video and image files."""
+    logger.info("⚡ Request DELETE for alarm event: %s", alarm_id)
+    success = _event_store.delete_event(alarm_id)
+    if success:
+        return jsonify({
+            "success": True,
+            "message": f"Event {alarm_id} and associated media files deleted",
+            "alarm_id": str(alarm_id),
+        }), 200
+    return jsonify({
+        "success": False,
+        "error": f"Event {alarm_id} not found",
+        "alarm_id": str(alarm_id),
+    }), 404
+
+
+@app.route("/api/events/cleanup", methods=["POST"])
+def api_events_cleanup():
+    """Trigger manual pruning of expired retention media and orphaned files."""
+    logger.info("⚡ Manual retention cleanup triggered")
+    _event_store._prune_disk()
+    remaining = len(_event_store.get_all())
+    return jsonify({
+        "success": True,
+        "retention_days": VIDEO_RETENTION_DAYS,
+        "remaining_events": remaining,
+    }), 200
 
 
 @app.route("/api/events/image/<alarm_id>")
@@ -1846,12 +1968,28 @@ def internal_error(e):
 # Main
 # ---------------------------------------------------------------------------
 
+def _retention_worker():
+    """Periodic worker to prune expired videos and snapshots based on VIDEO_RETENTION_DAYS."""
+    logger.info("Retention worker started (interval: 3600s, retention: %s days)", VIDEO_RETENTION_DAYS)
+    while True:
+        try:
+            time.sleep(3600)
+            if VIDEO_RETENTION_DAYS > 0:
+                logger.info("Running scheduled retention pruning...")
+                _event_store._prune_disk()
+        except Exception as e:
+            logger.error("Retention worker error: %s", e)
+            time.sleep(60)
+
+
 if __name__ == "__main__":
     logger.info("=" * 60)
     logger.info("Ezviz Camera Proxy starting")
     logger.info("Camera serial : %s", CAMERA_SERIAL or "(not configured)")
     logger.info("Region        : %s", EZVIZ_REGION)
     logger.info("Snapshot every: %ds", SNAPSHOT_INTERVAL)
+    logger.info("Retention days: %sd", VIDEO_RETENTION_DAYS)
+    logger.info("Max events    : %d", MAX_STORED_EVENTS)
     logger.info("Ingress entry : %s", INGRESS_ENTRY or "/")
     logger.info("=" * 60)
 
@@ -1864,6 +2002,7 @@ if __name__ == "__main__":
     # Start background threads
     threading.Thread(target=_snapshot_worker, daemon=True, name="snapshot-worker").start()
     threading.Thread(target=_local_mqtt_worker, daemon=True, name="local-mqtt-listener").start()
+    threading.Thread(target=_retention_worker, daemon=True, name="retention-worker").start()
 
     app.run(
         host="0.0.0.0",

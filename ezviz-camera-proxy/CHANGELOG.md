@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.8.5] — 2026-10-21
+
+### Added & Improved
+- **Paginazione Eventi Recenti (`server.py`, `templates/index.html`)**:
+  - Aggiunto supporto a paginazione con controlli intuitivi nella dashboard (*Precedente / Successiva*, contatore elementi e indicatore pagina).
+  - Estesa l'API `/api/events` con i parametri query `page` e `limit` restituendo metadati (`total`, `total_pages`, `page`, `limit`).
+- **Sistema di Conservazione Configurabile (Retention Days) (`config.yaml`, `run.sh`, `server.py`, `translations/en.yaml`)**:
+  - Introdotto parametro `video_retention_days` (default `7` giorni, `0` = illimitata) e `max_stored_events` (default `100`).
+  - Implementato thread periodico di retention (`_retention_worker`) ogni ora per l'eliminazione automatica di snapshot e registrazioni MP4 più vecchi del periodo impostato.
+  - Aggiunto pulsante rapido *"Pulisci Ora 🧹"* in testata eventi per forzare la pulizia immediata su richiesta tramite `POST /api/events/cleanup`.
+- **Eliminazione Manuale Singolo Evento (`server.py`, `templates/index.html`)**:
+  - Aggiunto pulsante di cancellazione puntuale per singola riga evento con conferma e rimozione contestuale sia dal buffer in memoria sia dai file fisici JPG/MP4 su disco via `DELETE /api/events/<alarm_id>`.
+
+---
+
 ## [1.8.4] — 2026-10-21
 
 ### Improved

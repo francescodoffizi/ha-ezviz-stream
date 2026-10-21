@@ -63,3 +63,13 @@ configuration:
       When enabled, the add-on automatically downloads and archives high-definition
       MP4 video clips for each detected event (doorbell/motion) directly on disk using ffmpeg.
       Available for download or viewing at /api/events/clip/<alarm_id>.
+  video_retention_days:
+    name: Video & Snapshot Retention (Days)
+    description: >-
+      Number of days to keep downloaded event videos and snapshots on disk before
+      automatic purging. Set to 0 to disable automatic expiration cleanup. Default: 7 days.
+  max_stored_events:
+    name: Maximum Stored Events History
+    description: >-
+      Maximum number of historical events to keep in the in-memory log buffer and dashboard.
+      Default: 100 events.
