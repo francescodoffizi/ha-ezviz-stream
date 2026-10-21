@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.8.6] — 2026-10-21
+
+### Fixed
+- **Risoluzione Deadlock su `EventStore.lock` (`server.py`)**:
+  - Sostituito `threading.Lock()` con `threading.RLock()` (lock rientrante) in `EventStore.__init__` per evitare l'auto-deadlock quando `add_events()` invoca `_prune_disk()` tenendo già acquisito `self.lock` (che bloccava tutte le richieste HTTP verso `/` e `/api/events` subito dopo il primo polling eventi).
+- **Risoluzione `SyntaxError` JavaScript in Dashboard (`templates/index.html`)**:
+  - Rimossa la doppia chiusura `.catch(...)` duplicata al termine di `pollEvents()` che generava `Uncaught SyntaxError: Unexpected token '.'` bloccando l'esecuzione dello script nella dashboard.
+
+---
+
 ## [1.8.5] — 2026-10-21
 
 ### Added & Improved

@@ -117,7 +117,7 @@ class EventStore:
     def __init__(self, max_size=20):
         self.max_size = max_size
         self.events = []
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.clip_locks: dict[str, threading.Lock] = {}
 
     def _get_clip_lock(self, alarm_id: str) -> threading.Lock:
@@ -321,8 +321,8 @@ class EventStore:
             max_retention_sec = (VIDEO_RETENTION_DAYS * 86400) if VIDEO_RETENTION_DAYS > 0 else 0
 
             # 1. Prune events from memory if older than VIDEO_RETENTION_DAYS
-            if max_retention_sec > 0:
-                with self.lock:
+            with self.lock:
+                if max_retention_sec > 0:
                     retained_events = []
                     for e in self.events:
                         age = self.event_age_seconds(e.get("alarm_time", ""))
@@ -330,7 +330,7 @@ class EventStore:
                             retained_events.append(e)
                     self.events = retained_events
 
-            ev_map = {str(e["alarm_id"]): e.get("alarm_time", "") for e in self.events}
+                ev_map = {str(e["alarm_id"]): e.get("alarm_time", "") for e in self.events}
 
             # 2. Prune images
             for f in EVENT_SNAPSHOT_PATH.glob("event_*.jpg"):
