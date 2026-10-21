@@ -164,7 +164,7 @@
   </div>
 
   {% if snapshot_error %}
-  <div class="card p-4 mb-4 border-red-800 text-sm" style="color:var(--ha-danger)">
+  <div id="snapshot-error-banner" class="card p-4 mb-4 border-red-800 text-sm" style="color:var(--ha-danger)">
     <strong>Errore snapshot:</strong> {{ snapshot_error }}
   </div>
   {% endif %}
@@ -211,6 +211,7 @@
           id="stream-img"
           src="{{ ingress_url('/api/snapshot') }}"
           alt="Camera snapshot"
+          onload="const b=document.getElementById('snapshot-error-banner'); if(b) b.style.display='none';"
           onerror="console.error('Errore caricamento immagine/stream su:', this.src); this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22640%22 height=%22360%22><rect width=%22640%22 height=%22360%22 fill=%22%230a0a0c%22/><text x=%22320%22 y=%22180%22 text-anchor=%22middle%22 fill=%22%239ca3af%22 font-size=%2218%22>Nessuna immagine disponibile</text></svg>';"
         />
         <div id="refresh-overlay"
@@ -481,7 +482,7 @@
 
   <!-- Footer -->
   <div class="mt-6 text-center text-xs" style="color:var(--ha-text-muted)">
-    Ezviz Camera Proxy v1.8.3
+    Ezviz Camera Proxy v1.8.7
     &nbsp;·&nbsp;
     <a href="{{ ingress_url('/api/health') }}" class="underline" style="color:var(--ha-accent)">Salute</a>
     &nbsp;·&nbsp;
@@ -618,6 +619,8 @@
         .then(r => r.json())
         .then(data => {
           if (data.success) {
+            const errBanner = document.getElementById('snapshot-error-banner');
+            if (errBanner) errBanner.style.display = 'none';
             // Cache-bust the image src
             img.src = url('/api/snapshot') + '?t=' + Date.now();
             if (data.timestamp) {

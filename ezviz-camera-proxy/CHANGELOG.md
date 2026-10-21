@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.8.7] — 2026-10-21
+
+### Fixed & Improved
+- **Soppressione Falso Banner `Errore snapshot: Cloud returned empty snapshot` (`server.py`, `templates/index.html`)**:
+  - Evitata l'impostazione persistente di `_snapshot_error` quando `current.jpg` (`CURRENT_SNAPSHOT_FILE`) è già presente e valido su disco ma un refresh manuale trova la telecamera in standby/occupata (`code 2009`).
+  - Aggiunto `id="snapshot-error-banner"` al box errore SSR e rimozione automatica client-side non appena `#stream-img` viene caricato o aggiornato con successo.
+- **Riconciliazione Miniature Eventi Face Recognition (`server.py`)**:
+  - Estesa `_reconcile_legacy_videos()` per associare automaticamente anche le immagini locali `event_*.jpg` salvate dal push entro `[-15s, +60s]` quando il cloud polling restituisce un ID evento differente (es. `Laura appeared`), evitando errori `404` sulle miniature.
+
+---
+
 ## [1.8.6] — 2026-10-21
 
 ### Fixed

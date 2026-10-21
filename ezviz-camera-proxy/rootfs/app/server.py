@@ -160,9 +160,10 @@ class EventStore:
             return False
 
     def _reconcile_legacy_videos(self):
-        """Migrate genuine clips recorded under numeric push IDs to canonical MVE IDs and purge posthumous live clips."""
+        """Migrate genuine clips and images recorded under push/alternate IDs to canonical event IDs and purge posthumous live clips."""
         try:
             all_mp4s = list(EVENT_VIDEO_PATH.glob("video_*.mp4"))
+            all_jpgs = list(EVENT_SNAPSHOT_PATH.glob("event_*.jpg"))
             for e in self.events:
                 ev_id = str(e["alarm_id"])
                 ev_time = e.get("alarm_time", "")
@@ -178,8 +179,24 @@ class EventStore:
                             logger.info("Migrated genuine event clip %s -> %s", cand.name, target_v.name)
                             break
                 e["local_video"] = self.is_valid_video(target_v, ev_time)
+
+                target_img = EVENT_SNAPSHOT_PATH / f"event_{ev_id}.jpg"
+                if not target_img.exists() and ev_time:
+                    try:
+                        ev_dt = datetime.strptime(ev_time, "%Y-%m-%d %H:%M:%S")
+                        for cand_img in all_jpgs:
+                            if cand_img == target_img or not cand_img.exists():
+                                continue
+                            mtime_dt = datetime.fromtimestamp(cand_img.stat().st_mtime)
+                            if -15 <= (mtime_dt - ev_dt).total_seconds() <= 60:
+                                shutil.copy2(cand_img, target_img)
+                                logger.info("Reconciled event image %s -> %s", cand_img.name, target_img.name)
+                                break
+                    except Exception:
+                        pass
+                e["local_pic"] = target_img.exists()
         except Exception as e:
-            logger.error("Video reconciliation error: %s", e)
+            logger.error("Video/image reconciliation error: %s", e)
 
     def add_events(self, new_events: list[dict], download_images=True):
         """Merge new events into the store, deduplicating with fuzzy time matching."""
@@ -1366,8 +1383,12 @@ app.jinja_env.globals["snapshot_interval"] = SNAPSHOT_INTERVAL
 @app.route("/")
 def index():
     """Main dashboard."""
+    global _last_snapshot_time
     logger.info("⚡ Request: / (Dashboard), Ingress=%s", INGRESS_ENTRY)
     events = _event_store.get_all()
+    has_valid_snapshot = CURRENT_SNAPSHOT_FILE.exists() and CURRENT_SNAPSHOT_FILE.stat().st_size > 0
+    if has_valid_snapshot and _last_snapshot_time is None:
+        _last_snapshot_time = datetime.fromtimestamp(CURRENT_SNAPSHOT_FILE.stat().st_mtime, tz=timezone.utc)
     return render_template(
         "index.html",
         camera_serial=CAMERA_SERIAL,
@@ -1379,7 +1400,7 @@ def index():
         status=_last_status,
         events=events[:10],
         total_events=len(events),
-        snapshot_error=_snapshot_error,
+        snapshot_error="" if has_valid_snapshot else _snapshot_error,
         status_error=_status_error,
     )
 
@@ -1446,8 +1467,15 @@ def api_snapshot_refresh():
                 "bytes": len(img_bytes),
             })
         else:
-            _snapshot_error = "Cloud returned empty snapshot"
-            return jsonify({"success": False, "error": _snapshot_error}), 502
+            has_valid_snapshot = CURRENT_SNAPSHOT_FILE.exists() and CURRENT_SNAPSHOT_FILE.stat().st_size > 0
+            if not has_valid_snapshot:
+                _snapshot_error = "Cloud returned empty snapshot"
+            else:
+                _snapshot_error = ""
+            return jsonify({
+                "success": False,
+                "error": "Telecamera in standby o occupata (visualizzato ultimo snapshot disponibile)" if has_valid_snapshot else "Cloud returned empty snapshot",
+            }), 502
 
     except EzvizAuthError as e:
         handle_auth_error(e)
@@ -1504,9 +1532,13 @@ def api_events():
     for ev in events:
         clean_ev = dict(ev)
         clean_ev["alarm_type"] = _normalize_alarm_label(clean_ev.get("alarm_type", "Event"))
+        img_file = EVENT_SNAPSHOT_PATH / f"event_{ev['alarm_id']}.jpg"
+        clean_ev["local_pic"] = img_file.exists()
         pic_url = clean_ev.get("alarm_pic_url", "")
-        if pic_url and len(pic_url) > 200:
+        if clean_ev["local_pic"]:
             clean_ev["alarm_pic_url"] = ingress_url(f"/api/events/image/{ev['alarm_id']}")
+        elif pic_url and len(pic_url) > 200:
+            clean_ev["alarm_pic_url"] = ""
         v_file = EVENT_VIDEO_PATH / f"video_{ev['alarm_id']}.mp4"
         tmp_file = EVENT_VIDEO_PATH / f"tmp_{ev['alarm_id']}.mp4"
         ev_time = clean_ev.get("alarm_time", "")
