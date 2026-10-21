@@ -49,10 +49,16 @@
       color: #fff;
       border: none;
       border-radius: 8px;
-      padding: 8px 18px;
+      padding: 6px 14px;
       cursor: pointer;
-      font-size: 14px;
+      font-size: 13px;
       transition: background 0.2s;
+    }
+    @media (max-width: 640px) {
+      .btn-primary {
+        padding: 6px 10px;
+        font-size: 12px;
+      }
     }
     .btn-primary:hover { background: var(--ha-accent-hover); }
     .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -173,28 +179,28 @@
 
     <!-- Camera Feed (left/top, spans 2 cols on large screens) -->
     <div class="card p-4 lg:col-span-2">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="font-semibold text-sm uppercase tracking-wide" style="color:var(--ha-text-muted)">Vista Live</h2>
-        <div class="flex items-center gap-3">
-          <button class="btn-primary flex items-center gap-2" id="refresh-btn" onclick="manualRefresh()">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <h2 class="font-semibold text-sm uppercase tracking-wide whitespace-nowrap" style="color:var(--ha-text-muted)">Vista Live</h2>
+        <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
+          <button class="btn-primary flex items-center gap-1.5" id="refresh-btn" onclick="manualRefresh()" title="Aggiorna snapshot">
+            <svg class="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round"
                 d="M4 4v5h5M20 20v-5h-5M4 9a8 8 0 0114.93-2.93M20 15a8 8 0 01-14.93 2.93"/>
             </svg>
-            Aggiorna
+            <span>Aggiorna</span>
           </button>
-          <button class="btn-primary flex items-center gap-2" id="live-hls-btn" onclick="openPlayer('', true)" style="background:var(--ha-success)">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <button class="btn-primary flex items-center gap-1.5" id="live-hls-btn" onclick="openPlayer('', true)" style="background:var(--ha-success)" title="Apri streaming Live HLS">
+            <svg class="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
-            Live Nativo HLS
+            <span>Live <span class="hidden sm:inline">Nativo </span>HLS</span>
           </button>
-          <button class="btn-primary flex items-center gap-2" id="history-btn" onclick="toggleHistory()" style="background:var(--ha-warning)">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <button class="btn-primary flex items-center gap-1.5" id="history-btn" onclick="toggleHistory()" style="background:var(--ha-warning)" title="Riproduci sequenza snapshot recenti">
+            <svg class="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
               <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            Riproduci Cronologia
+            <span class="hidden sm:inline">Riproduci </span><span>Cronologia</span>
           </button>
         </div>
       </div>
@@ -342,8 +348,8 @@
         {% if events %}
         <div class="divide-y" style="border-color: var(--ha-border)">
           {% for event in events %}
-          <div class="event-row py-3 flex items-center justify-between text-sm">
-            <div class="flex items-center gap-3">
+          <div class="event-row py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm">
+            <div class="flex items-center gap-3 min-w-0">
               {% set img_url = ingress_url('/api/events/image/' ~ event.alarm_id) if event.local_pic else event.alarm_pic_url %}
               {% if img_url %}
               <div class="w-12 h-12 bg-gray-800 rounded overflow-hidden flex-shrink-0 cursor-pointer" onclick="showImageModal('{{ img_url }}')">
@@ -358,54 +364,57 @@
               </div>
               {% endif %}
               
-              <div class="flex flex-col">
-                <span class="badge w-fit mb-1
+              <div class="flex flex-col min-w-0">
+                <span class="badge w-fit mb-1 truncate
                   {%- if 'motion' in (event.alarm_type or '') | lower %} badge-motion
                   {%- elif 'doorbell' in (event.alarm_type or '') | lower or 'bell' in (event.alarm_type or '') | lower %} badge-doorbell
                   {%- else %} badge-other{%- endif %}">
                   {{ event.alarm_type or 'Evento' }}
                 </span>
-                <span style="color:var(--ha-text)">
+                <span class="text-xs sm:text-sm font-mono sm:font-sans" style="color:var(--ha-text)">
                   {{ event.alarm_time or '—' }}
                 </span>
               </div>
             </div>
-              <div class="flex items-center gap-2">
-                {% if event.local_video %}
-                <button onclick="openPlayer('{{ event.alarm_id }}', false)"
-                   class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1"
-                   style="background:#8b5cf6; color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;">
-                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                  </svg>
-                  Video
-                </button>
+            <div class="flex items-center gap-1.5 sm:gap-2 self-end sm:self-center flex-shrink-0">
+              {% if event.local_video %}
+              <button onclick="openPlayer('{{ event.alarm_id }}', false)"
+                 class="btn-primary py-1 px-2.5 text-xs flex items-center gap-1"
+                 style="background:#8b5cf6; color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;"
+                 title="Guarda video">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                </svg>
+                <span>Video</span>
+              </button>
 
-                <button onclick="downloadClip('{{ event.alarm_id }}', this)"
-                   class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1"
-                   style="background:#059669; color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;">
-                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  <span>MP4</span>
-                </button>
-                {% else %}
-                <span class="badge badge-other text-[9px]" style="opacity:0.55;" title="Registrazione video non presente per questo evento">Solo Foto</span>
-                {% endif %}
+              <button onclick="downloadClip('{{ event.alarm_id }}', this)"
+                 class="btn-primary py-1 px-2.5 text-xs flex items-center gap-1"
+                 style="background:#059669; color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;"
+                 title="Scarica MP4">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                <span>MP4</span>
+              </button>
+              {% else %}
+              <span class="badge badge-other text-[10px]" style="opacity:0.6;" title="Registrazione video non presente per questo evento">Solo Foto</span>
+              {% endif %}
 
-                {% if img_url %}
-                <button onclick="showImageModal('{{ img_url }}')"
-                   class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1" 
-                   style="background:var(--ha-accent); color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;">
-                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
-                  Vedi
-                </button>
-                {% endif %}
-              </div>
+              {% if img_url %}
+              <button onclick="showImageModal('{{ img_url }}')"
+                 class="btn-primary py-1 px-2.5 text-xs flex items-center gap-1" 
+                 style="background:var(--ha-accent); color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;"
+                 title="Ingrandisci foto">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                <span>Vedi</span>
+              </button>
+              {% endif %}
             </div>
+          </div>
             {% endfor %}
           </div>
           {% else %}
@@ -485,8 +494,8 @@
         'Returned to Live view': 'Tornato alla vista Live',
         'History Playback': 'Riproduzione Cronologia',
         'Live': 'Live',
-        'Stop History': '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" /></svg> Ferma Cronologia',
-        'Play History': '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> Riproduci Cronologia',
+        'Stop History': '<svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" /></svg> <span>Stop</span>',
+        'Play History': '<svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> <span class="hidden sm:inline">Riproduci </span><span>Cronologia</span>',
         'Never': 'Mai',
         'Locale': 'Locale',
         'View': 'Vedi'
@@ -774,8 +783,8 @@
             
             const imgUrl = e.local_pic ? url('/api/events/image/' + e.alarm_id) : (e.alarm_pic_url || '');
             
-            html += `<div class="event-row py-3 flex items-center justify-between text-sm">
-              <div class="flex items-center gap-3">
+            html += `<div class="event-row py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm">
+              <div class="flex items-center gap-3 min-w-0">
                 ${imgUrl ? `
                   <div class="w-12 h-12 bg-gray-800 rounded overflow-hidden flex-shrink-0 cursor-pointer" onclick="showImageModal('${imgUrl}')">
                     <img src="${imgUrl}" alt="Event" class="w-full h-full object-cover" onerror="this.parentElement.style.display='none'">
@@ -788,47 +797,50 @@
                   </div>
                 `}
                 
-                <div class="flex flex-col">
-                  <span class="badge w-fit mb-1 ${badgeClass}">${t(e.alarm_type) || t('Event')}</span>
-                  <span style="color:var(--ha-text)">${e.alarm_time || '—'}</span>
+                <div class="flex flex-col min-w-0">
+                  <span class="badge w-fit mb-1 truncate ${badgeClass}">${t(e.alarm_type) || t('Event')}</span>
+                  <span class="text-xs sm:text-sm" style="color:var(--ha-text)">${e.alarm_time || '—'}</span>
                 </div>
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-1.5 sm:gap-2 self-end sm:self-center flex-shrink-0">
                 ${e.local_video ? `
                 <button onclick="openPlayer('${e.alarm_id}', false)"
-                   class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1"
-                   style="background:#8b5cf6; color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;">
-                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                   class="btn-primary py-1 px-2.5 text-xs flex items-center gap-1"
+                   style="background:#8b5cf6; color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;"
+                   title="Guarda video">
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                   </svg>
-                  Video
+                  <span>Video</span>
                 </button>
                 <button onclick="downloadClip('${e.alarm_id}', this)"
-                   class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1"
-                   style="background:#059669; color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;">
-                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                   class="btn-primary py-1 px-2.5 text-xs flex items-center gap-1"
+                   style="background:#059669; color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;"
+                   title="Scarica MP4">
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
                   <span>MP4</span>
                 </button>
                 ` : (e.video_recording ? `
                 <button onclick="openPlayer('${e.alarm_id}', false)"
-                   class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1"
+                   class="btn-primary py-1 px-2.5 text-xs flex items-center gap-1"
                    style="background:#6d28d9; color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;">
                   <span>Reg. Video…</span>
                 </button>
                 ` : `
-                <span class="badge badge-other text-[9px]" style="opacity:0.55;" title="Registrazione video non presente per questo evento">Solo Foto</span>
+                <span class="badge badge-other text-[10px]" style="opacity:0.6;" title="Registrazione video non presente per questo evento">Solo Foto</span>
                 `)}
                 ${imgUrl ? `
                   <button onclick="showImageModal('${imgUrl}')" 
-                     class="btn-primary py-1 px-2 text-[10px] flex items-center gap-1" 
-                     style="background:var(--ha-accent); color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;">
-                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                     class="btn-primary py-1 px-2.5 text-xs flex items-center gap-1" 
+                     style="background:var(--ha-accent); color:white; border-radius:4px; text-decoration:none; border:none; cursor:pointer;"
+                     title="Ingrandisci foto">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                       <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                     </svg>
-                    ${t('View')}
+                    <span>${t('View')}</span>
                   </button>` : ''}
               </div>
             </div>`;

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.8.4] — 2026-10-21
+
+### Improved
+- **Ottimizzazione Responsive UI Mobile (`templates/index.html`)**:
+  - Compattati i pulsanti di controllo della testata *Vista Live* (`Aggiorna`, `Live Nativo HLS`, `Riproduci Cronologia`): ridotto padding/font su mobile (`sm`), abbreviate le etichette per evitare il wrapping multilinea sgradevole e aggiunti attributi `title` esplicativi.
+  - Ristrutturata la vista degli *Eventi Recenti*: su viewport mobile (`< sm`) il layout passa da riga rigida a flex-column responsivo con azioni allineate ordinatamente a destra su riga dedicata, evitando collisioni di colonne e testi schiacciati.
+  - Allineata la coerenza grafica sia sul template Jinja2 renderizzato lato server sia nell'aggiornamento dinamico client-side (`pollEvents`).
+
+---
+
 ## [1.8.3] — 2026-10-20
 
 ### Fixed & Improved
